@@ -99,6 +99,13 @@ ANOMALY_HISTORY_LENGTH = 20  # recent anomalies kept for streaming to dashboards
 # in at the gate and they must be recognised seconds later, not after a restart.
 VISITOR_RELOAD_SECONDS = 5
 
+# The enrolled database changes too — someone is registered in the dashboard,
+# or a data pack is imported. Both used to need an engine restart to take
+# effect, with nothing in the UI saying so. Checked by modification time, so a
+# tick where nothing changed costs one stat() call; 5s matches the visitor
+# registry rather than being tuned separately.
+ENROLLED_RELOAD_SECONDS = 5
+
 
 class LatestFrameStream:
     """Continuously reads RTSP frames and keeps only the newest one."""
@@ -382,6 +389,74 @@ def load_database() -> tuple[list[str], np.ndarray]:
     return names, np.stack(embeddings)
 
 
+class EnrolledRegistry:
+    """The enrolled people, reloaded whenever their database file changes.
+
+    This used to be read exactly once, at engine startup, and that was wrong in
+    a way that only shows up in a packaged build. A shipped Sentra starts with
+    nobody enrolled — the installer carries no biometric data — so the very
+    first thing an operator does is register someone or import a data pack.
+    With a startup-only read, neither took effect until the engine was
+    restarted, and nothing in the UI said so. The symptom is the worst kind:
+    the camera streams, the dashboard is healthy, detection simply never names
+    anybody, and there is no error anywhere to explain it.
+
+    Reload is keyed on the file's modification time, so the common case costs
+    one stat() per tick and nothing else. Reads never lock: the loader builds a
+    complete snapshot and swaps it in with one assignment, so a worker sees
+    either the whole old roster or the whole new one — never a matrix whose
+    rows and names disagree. Same contract as VisitorRegistry, for the same
+    reason.
+    """
+
+    def __init__(self) -> None:
+        self._snapshot: tuple[list[str], np.ndarray] = _empty_database()
+        self._signature: tuple[float, int] | None = None
+        self._thread: threading.Thread | None = None
+
+    def _file_signature(self) -> tuple[float, int] | None:
+        try:
+            stat = DATABASE_FILE.stat()
+        except OSError:
+            return None
+        # Size as well as mtime: two writes inside the same coarse mtime tick
+        # is unlikely but free to rule out.
+        return (stat.st_mtime, stat.st_size)
+
+    def reload_if_changed(self) -> bool:
+        """Reload when the file has changed. Returns True if it did."""
+        signature = self._file_signature()
+        if signature == self._signature:
+            return False
+        self._signature = signature
+        try:
+            self._snapshot = load_database()
+        except Exception as exc:  # noqa: BLE001 — never kill recognition
+            print(f"Could not reload the face database ({exc}); keeping the previous set.")
+            return False
+        return True
+
+    def get(self) -> tuple[list[str], np.ndarray]:
+        return self._snapshot  # single read; see class docstring
+
+    def _loop(self, running: threading.Event) -> None:
+        while running.is_set():
+            time.sleep(ENROLLED_RELOAD_SECONDS)
+            if self.reload_if_changed():
+                names, _ = self._snapshot
+                print(
+                    f"Face database updated — now {len(names)} enrolled person(s)"
+                    f"{': ' + ', '.join(names) if names else ''}"
+                )
+
+    def start(self, running: threading.Event) -> None:
+        self.reload_if_changed()
+        self._thread = threading.Thread(
+            target=self._loop, args=(running,), name="enrolled-reload", daemon=True
+        )
+        self._thread.start()
+
+
 def load_model() -> FaceAnalysis:
     print("Loading InsightFace model...")
     # root= points InsightFace at the model set. A packaged build ships
@@ -435,8 +510,7 @@ def _make_recognition_worker(
     cam: CameraRuntime,
     model: FaceAnalysis,
     model_lock: threading.Lock,
-    names: list[str],
-    known_embeddings: np.ndarray,
+    enrolled: EnrolledRegistry,
     running: threading.Event,
     visitors: VisitorRegistry | None = None,
 ):
@@ -455,6 +529,11 @@ def _make_recognition_worker(
 
         while running.is_set():
             try:
+                # Read once per frame rather than closing over the roster: this
+                # is what lets a newly registered person or an imported data
+                # pack take effect without restarting the engine.
+                names, known_embeddings = enrolled.get()
+
                 frame = cam.stream.read()
                 if frame is None:
                     time.sleep(0.01)
@@ -790,8 +869,13 @@ def _draw_overlay(frame: np.ndarray, cam: CameraRuntime, running: threading.Even
 
 def main() -> int:
     _write_pid_file()
-    names, known_embeddings = load_database()
-    print(f"Loaded {len(names)} enrolled person(s): {', '.join(names)}")
+    enrolled = EnrolledRegistry()
+    enrolled.reload_if_changed()
+    _startup_names, _ = enrolled.get()
+    print(
+        f"Loaded {len(_startup_names)} enrolled person(s)"
+        f"{': ' + ', '.join(_startup_names) if _startup_names else ''}"
+    )
     model = load_model()
     model_lock = threading.Lock()
 
@@ -805,6 +889,11 @@ def main() -> int:
     visitors.start(running)
     if visitors.last_error:
         print(f"Temporary Pass unavailable (visitor database error): {visitors.last_error}")
+
+    # Watches the enrolled database for changes from this point on, so someone
+    # registered in the dashboard — or a whole roster imported as a data pack —
+    # is recognised within seconds rather than after an engine restart.
+    enrolled.start(running)
 
     camera_configs = camera_store.load_cameras()
     print(f"Configured camera(s): {len(camera_configs)}")
@@ -852,7 +941,7 @@ def main() -> int:
         if cam.ai_enabled:
             worker = threading.Thread(
                 target=_make_recognition_worker(
-                    cam, model, model_lock, names, known_embeddings, running, visitors
+                    cam, model, model_lock, enrolled, running, visitors
                 ),
                 daemon=True,
             )
