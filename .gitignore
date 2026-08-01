@@ -1,0 +1,57 @@
+# --- Build output ---------------------------------------------------------
+build/
+dist/
+.venv-build/
+windows/output/
+windows/build_info.json
+*.spec.bak
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Runtime state (regenerated, never source) ----------------------------
+.run_logs/
+.updates/
+
+# --- Large files that are not part of the application ---------------------
+# Training/reference data, unrelated to what Sentra ships.
+archive.zip
+Human Faces Dataset/
+
+# Vendored ONVIF spec repo (~29MB). No code imports it — onvif_discovery.py
+# uses the onvif-zeep package, which ships its own WSDLs. It is also a nested
+# git repo, which would land in a parent repo as an empty gitlink and break a
+# CI checkout.
+specs/
+
+# --- Business material, not source ----------------------------------------
+# The releases repo is public so the in-app updater can reach it without
+# credentials. Pitch material does not belong in a public repo.
+Pitch.docx
+~$Pitch.docx
+Sentra_Pitch_Demo_2.html
+
+# --- Personal and biometric data ------------------------------------------
+# NOT committed. These hold photographs and face embeddings of real, named
+# people, plus a log of where and when each of them was seen.
+#
+# Committing them would publish identifiable biometric data of people who
+# never agreed to that, and a git history keeps it forever even after a later
+# delete. If a build needs to ship seed data, put it on the build machine
+# directly rather than in version control.
+#
+# See windows/sentra.iss for how a fresh install seeds these folders.
+Faces/
+Visitors/
+Database/detections.db
+Database/face_embeddings.pkl
+Database/face_embeddings.pkl.bak
+Database/camera_config.json
+Database/update_config.json
+
+# --- macOS ----------------------------------------------------------------
+.DS_Store
+~$*

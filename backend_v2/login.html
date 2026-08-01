@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentra — Sign in</title>
+<style>
+  :root {
+    --bg: #F5F5F7;
+    --panel: #FFFFFF;
+    --line: rgba(0,0,0,0.08);
+    --text: #1D1D1F;
+    --text-dim: #6E6E73;
+    --text-faint: #A1A1A6;
+    --blue: #0071E3;
+    --blue-hover: #0077ED;
+    --red: #FF3B30;
+    --red-bg: #FFF1F0;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg, #FBFBFD 0%, #F0F0F3 100%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+    height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    background: var(--panel);
+    border-radius: 20px;
+    padding: 40px 36px 32px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 24px 48px rgba(0,0,0,0.08);
+  }
+  @media (max-width: 420px) {
+    .card { padding: 32px 24px 26px; }
+  }
+  .brand-row { display: flex; flex-direction: column; align-items: center; margin-bottom: 30px; }
+  .brand-mark {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, #0071E3, #42A5F5);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+    box-shadow: 0 6px 16px rgba(0,113,227,0.28);
+  }
+  .brand-mark svg { width: 22px; height: 22px; }
+  .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+  .brand-sub { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; font-weight: 590; color: var(--text); margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: #F5F5F7; border: 1px solid transparent;
+    border-radius: 10px; color: var(--text); padding: 12px 14px; font-size: 15px;
+    font-family: inherit;
+  }
+  .field input:focus { outline: none; background: #FFFFFF; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(0,113,227,0.12); }
+
+  button[type="submit"] {
+    width: 100%; background: var(--blue); color: #fff; border: none;
+    border-radius: 980px; padding: 13px 0; font-weight: 600; font-size: 15px;
+    cursor: pointer; margin-top: 6px; font-family: inherit;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button[type="submit"]:hover { background: var(--blue-hover); }
+  button[type="submit"]:active { transform: scale(0.98); }
+  button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .error-msg {
+    background: var(--red-bg); color: var(--red); border-radius: 10px;
+    font-size: 13px; padding: 10px 13px; margin-bottom: 16px; display: none; font-weight: 500;
+  }
+
+  .hint {
+    margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line);
+    font-size: 12.5px; color: var(--text-faint); line-height: 1.6; text-align: center;
+  }
+  .hint b { color: var(--text-dim); font-weight: 600; }
+  .hint-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .hint code {
+    background: #F5F5F7; padding: 1.5px 6px; border-radius: 5px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px; color: var(--text);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand-row">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div class="brand-name">Sentra</div>
+      <div class="brand-sub">CCTV Intelligence</div>
+    </div>
+
+    <div class="error-msg" id="error-msg"></div>
+
+    <form id="login-form">
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="username" autocomplete="username" autofocus />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" autocomplete="current-password" />
+      </div>
+      <button type="submit" id="submit-btn">Sign In</button>
+    </form>
+
+    <div class="hint">
+      <b>Demo access</b> — so the pitch never gets locked out:<br>
+      <code>sharktanktest</code> &nbsp;/&nbsp; <code>demo</code>
+      <div class="hint-row">
+        <b>Guard Credentials</b><br>
+        <code>guard</code> &nbsp;/&nbsp; <code>testing</code>
+      </div>
+    </div>
+  </div>
+
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errorMsg = document.getElementById('error-msg');
+  errorMsg.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+    if (res.ok) {
+      window.location.href = '/';
+    } else {
+      const data = await res.json().catch(() => ({}));
+      errorMsg.textContent = data.detail || 'Sign in failed.';
+      errorMsg.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  } catch (err) {
+    errorMsg.textContent = 'Could not reach the backend.';
+    errorMsg.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,2723 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentra — CCTV Intelligence</title>
+<script>
+  // Applied before first paint to avoid a flash of the wrong theme.
+  (function () {
+    var saved = localStorage.getItem('sentra-theme');
+    var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  })();
+</script>
+<style>
+  :root {
+    --bg: #F5F5F7;
+    --panel: #FFFFFF;
+    --fill: #F0F0F2;
+    --line: rgba(0,0,0,0.07);
+    --text: #1D1D1F;
+    --text-dim: #6E6E73;
+    --text-faint: #A1A1A6;
+    --blue: #0071E3;
+    --blue-hover: #0077ED;
+    --blue-tint: #E8F1FD;
+    --red: #FF3B30;
+    --red-tint: #FFF1F0;
+    --red-tint-hover: #FFE3E1;
+    --topbar-bg: rgba(245,245,247,0.82);
+    --hover-fill: rgba(0,0,0,0.035);
+    --row-hover-fill: rgba(0,0,0,0.015);
+    --badge-fill: rgba(0,0,0,0.05);
+    --dashed-line: rgba(0,0,0,0.16);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.04), 0 8px 20px rgba(0,0,0,0.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --panel: #1C1C1E;
+    --fill: #2C2C2E;
+    --line: rgba(255,255,255,0.09);
+    --text: #F5F5F7;
+    --text-dim: #98989D;
+    --text-faint: #636366;
+    --blue: #0A84FF;
+    --blue-hover: #3B9CFF;
+    --blue-tint: rgba(10,132,255,0.18);
+    --red: #FF453A;
+    --red-tint: rgba(255,69,58,0.16);
+    --red-tint-hover: rgba(255,69,58,0.26);
+    --topbar-bg: rgba(0,0,0,0.72);
+    --hover-fill: rgba(255,255,255,0.06);
+    --row-hover-fill: rgba(255,255,255,0.035);
+    --badge-fill: rgba(255,255,255,0.09);
+    --dashed-line: rgba(255,255,255,0.2);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.4);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar { width: 250px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+  .brand { height: 68px; display: flex; align-items: center; gap: 11px; padding: 0 22px; }
+  .brand-mark {
+    width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
+    background: linear-gradient(135deg, #0071E3, #42A5F5);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 10px rgba(0,113,227,0.25);
+  }
+  .brand-mark svg { width: 16px; height: 16px; }
+  .brand-name { font-weight: 700; font-size: 16px; letter-spacing: -0.3px; }
+  .brand-sub { font-size: 10.5px; color: var(--text-faint); margin-top: 0px; }
+
+  .nav { flex: 1; padding: 8px 14px; overflow-y: auto; }
+  .nav-label { font-size: 11px; font-weight: 600; color: var(--text-faint); padding: 0 12px; margin: 18px 0 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .nav-label:first-child { margin-top: 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    margin-bottom: 2px; border-radius: 9px; cursor: pointer;
+    color: var(--text-dim); font-size: 13.5px; font-weight: 500;
+    transition: background 0.12s, color 0.12s;
+  }
+  .nav-item svg { width: 17px; height: 17px; flex-shrink: 0; opacity: 0.75; }
+  .nav-item:hover { background: var(--hover-fill); }
+  .nav-item.active { background: var(--blue-tint); color: var(--blue); font-weight: 600; }
+  .nav-item.active svg { opacity: 1; }
+  .nav-badge { margin-left: auto; font-size: 9.5px; font-weight: 700; color: var(--text-faint); background: var(--badge-fill); padding: 2px 6px; border-radius: 5px; letter-spacing: 0.3px; }
+
+  .sidebar-footer { padding: 16px 22px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-faint); line-height: 1.5; }
+  .sidebar-footer b { color: var(--text-dim); font-weight: 600; }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    height: 68px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 32px; flex-shrink: 0;
+    background: var(--topbar-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    position: relative; z-index: 5;
+  }
+  .topbar-title { font-weight: 700; font-size: 19px; letter-spacing: -0.4px; }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--blue); background: var(--blue-tint); padding: 6px 12px; border-radius: 980px; }
+  .status-pill.bad { color: var(--red); background: var(--red-tint); }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .status-pill .dot.pulse { animation: pulse 1.6s infinite; }
+  .op-chip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); font-weight: 500; }
+  .op-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--fill); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text-dim); }
+  .theme-toggle {
+    width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--fill);
+    color: var(--text-dim); display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .theme-toggle:hover { background: var(--hover-fill); }
+  .theme-toggle svg { width: 16px; height: 16px; }
+  .theme-toggle .icon-sun { display: none; }
+  :root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+  :root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+  .clock { font-size: 13px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+  .view { flex: 1; overflow-y: auto; padding: 30px 32px; }
+  .view-section { display: none; }
+  .view-section.active { display: block; }
+
+  /* ---------- Stat cards ---------- */
+  /* auto-fit rather than a fixed count so cards wrap onto a second row on a
+     narrow window instead of being squeezed until the numbers wrap. */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 26px; }
+  .stat-card { background: var(--panel); border-radius: 16px; padding: 22px 24px; box-shadow: var(--shadow-sm); }
+  .stat-label { font-size: 12.5px; color: var(--text-dim); font-weight: 500; margin-bottom: 12px; }
+  .stat-value { font-size: 34px; font-weight: 700; letter-spacing: -0.8px; font-variant-numeric: tabular-nums; }
+  .stat-value.blue { color: var(--blue); }
+  .stat-value.faint { color: var(--text-faint); font-size: 24px; }
+  .stat-sub { font-size: 12px; color: var(--text-faint); margin-top: 5px; }
+
+  .panel { background: var(--panel); border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden; }
+  .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--line); }
+  .panel-title { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; }
+  .live-tag { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--blue); font-weight: 600; }
+  .live-tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.6s infinite; }
+  .live-tag.off { color: var(--text-faint); }
+  .live-tag.off .dot { background: var(--text-faint); animation: none; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-faint); padding: 11px 24px; border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: 0.3px; }
+  td { padding: 13px 24px; font-size: 13.5px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--row-hover-fill); }
+  td.name { color: var(--text); font-weight: 600; white-space: nowrap; }
+  table { table-layout: auto; }
+  td.mono { word-break: break-all; }
+  td.mono, .mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; }
+  .tag-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: 980px; }
+  .tag-pill.ok { background: var(--blue-tint); color: var(--blue); }
+  .tag-pill.off { background: var(--red-tint); color: var(--red); }
+  .tag-pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-row { animation: fadein 0.35s ease; }
+
+  /* ---------- Person search ---------- */
+  .search-bar { display: flex; gap: 10px; margin-bottom: 22px; }
+  .search-bar input {
+    flex: 1; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+    color: var(--text); padding: 13px 16px; border-radius: 12px; font-size: 14px; font-family: inherit;
+  }
+  .search-bar input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(0,113,227,0.12); }
+  .search-bar button {
+    background: var(--blue); color: #fff; border: none; padding: 0 24px; border-radius: 12px;
+    font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; transition: background 0.15s;
+  }
+  .search-bar button:hover { background: var(--blue-hover); }
+  .dossier { display: flex; gap: 20px; align-items: center; padding: 24px; }
+  .dossier-avatar { width: 60px; height: 60px; border-radius: 50%; background: var(--blue-tint); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; color: var(--blue); flex-shrink: 0; }
+  .dossier-tag { font-size: 12px; color: var(--blue); font-weight: 600; }
+  .dossier-name { font-size: 21px; font-weight: 700; margin: 4px 0 6px; letter-spacing: -0.3px; }
+  .dossier-meta { display: flex; gap: 16px; color: var(--text-dim); font-size: 13px; }
+  .empty-hint { padding: 44px 22px; text-align: center; color: var(--text-faint); font-size: 13.5px; }
+  .hint-list { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
+
+  /* ---------- Live monitor ---------- */
+  .monitor-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px; height: calc(100vh - 170px); }
+  .feed-panel { background: #000; border-radius: 18px; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--shadow-md); }
+  .feed-topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; z-index: 3; }
+  .cam-tabs { display: flex; gap: 6px; }
+  .cam-tab { font-size: 12.5px; font-weight: 600; padding: 6px 13px; border-radius: 980px; color: #fff; background: rgba(255,255,255,0.14); }
+  .feed-view { flex: 1; position: relative; background: #0A0A0C; display: flex; align-items: center; justify-content: center; }
+  .feed-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .feed-offline { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: rgba(255,255,255,0.45); font-size: 13px; text-align: center; max-width: 300px; padding: 20px; }
+  .feed-offline .icon-wrap { width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; }
+  .feed-offline-title { font-weight: 600; font-size: 15px; color: rgba(255,255,255,0.75); }
+  .feed-offline-sub { font-size: 13px; line-height: 1.6; }
+  .bbox { position: absolute; border: 2px solid var(--blue); border-radius: 10px; box-shadow: 0 0 0 1px rgba(255,255,255,0.15); }
+  .bbox.unknown { border-color: var(--red); }
+  .bbox-label {
+    position: absolute; top: -26px; left: -2px; font-size: 11.5px; font-weight: 600;
+    background: var(--blue); color: #fff; padding: 3px 9px; border-radius: 980px; white-space: nowrap;
+  }
+  .bbox.unknown .bbox-label { background: var(--red); }
+  .feed-footer { padding: 10px 16px; display: flex; justify-content: space-between; font-size: 11.5px; color: rgba(255,255,255,0.4); font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+  .side-panel { display: flex; flex-direction: column; gap: 12px; }
+  .detected-item { display: flex; align-items: center; gap: 11px; padding: 12px 13px; border-radius: 12px; background: var(--fill); animation: fadein 0.3s ease; }
+  .detected-item .ring { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .ring.blue { background: var(--blue); } .ring.red { background: var(--red); }
+  .detected-item .di-name { font-weight: 600; font-size: 13px; }
+  .detected-item .di-conf { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
+
+  .muted { color: var(--text-faint); }
+  .stat-value.red { color: var(--red); }
+
+  /* ---------- Real-time alert banner ---------- */
+  /* Uses --red-tint so it reads correctly in both the light and dark themes.
+     Opacity is deliberately never animated: if the animation fails to run,
+     the banner must still be fully visible — a security alert that silently
+     doesn't appear is worse than one that appears without polish. */
+  #alert-banner-host { position: fixed; top: 84px; right: 26px; z-index: 900; display: flex; flex-direction: column; gap: 11px; max-width: 430px; }
+  .alert-banner { display: flex; align-items: flex-start; gap: 12px; background: var(--panel); opacity: 1; border: 1px solid var(--red); border-left: 3px solid var(--red); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow-md); animation: alertIn .22s ease-out; }
+  .alert-banner .icon { width: 30px; height: 30px; border-radius: 9px; background: var(--red-tint); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .alert-banner .icon svg { width: 16px; height: 16px; color: var(--red); }
+  .alert-banner-text { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  .alert-banner-text b { font-size: 14px; color: var(--text); font-weight: 650; letter-spacing: -0.2px; }
+  .alert-banner-text span { font-size: 12.5px; color: var(--text-dim); }
+  .alert-banner button { background: none; border: none; color: var(--text-faint); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  .alert-banner button:hover { color: var(--text); }
+  @keyframes alertIn { from { transform: translateX(14px); } to { transform: none; } }
+
+  /* ---------- Coming soon ---------- */
+  .coming-soon { border-radius: 18px; background: var(--panel); box-shadow: var(--shadow-sm); padding: 70px 44px; text-align: center; }
+  .coming-soon .icon-wrap { width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 16px; background: var(--blue-tint); display: flex; align-items: center; justify-content: center; }
+  .coming-soon h2 { font-size: 21px; margin: 0 0 10px; letter-spacing: -0.4px; font-weight: 700; }
+  .coming-soon p { color: var(--text-dim); font-size: 14px; max-width: 440px; margin: 0 auto 26px; line-height: 1.65; }
+  .future-list { display: inline-flex; flex-direction: column; gap: 9px; text-align: left; }
+  .future-list div { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--text-dim); }
+  .future-list div::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--blue); flex-shrink: 0; }
+  .soon-tag { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-faint); background: var(--badge-fill); padding: 4px 11px; border-radius: 980px; margin-bottom: 16px; display: inline-block; }
+
+  /* ---------- Register person ---------- */
+  .register-grid { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+  .register-form { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .field-label { font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 7px; display: block; }
+  .field-hint { font-size: 12.5px; color: var(--text-faint); line-height: 1.6; }
+  .register-form input[type="text"], .register-form input[type="password"] {
+    width: 100%; background: var(--bg); border: 1px solid transparent; color: var(--text);
+    padding: 11px 13px; border-radius: 10px; font-size: 14px; font-family: inherit;
+  }
+  .register-form input[type="text"]:focus, .register-form input[type="password"]:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(0,113,227,0.12); }
+  .file-drop {
+    display: block; border: 1.5px dashed var(--dashed-line); border-radius: 12px; padding: 22px;
+    text-align: center; color: var(--text-faint); font-size: 13px; cursor: pointer; background: var(--bg);
+  }
+  .file-drop:hover { border-color: var(--blue); color: var(--text-dim); }
+  .file-drop input { display: none; }
+  .file-list { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+  .btn-primary {
+    background: var(--blue); color: #fff; border: none; padding: 12px 20px; border-radius: 12px;
+    font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; transition: background 0.15s;
+  }
+  .btn-primary:hover { background: var(--blue-hover); }
+  .btn-secondary {
+    background: var(--fill); color: var(--text); border: none; padding: 12px 20px; border-radius: 12px;
+    font-weight: 600; font-size: 14px; cursor: pointer; font-family: inherit; transition: background 0.15s;
+  }
+  .btn-secondary:hover { background: var(--hover-fill); }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary svg { width: 15px; height: 15px; vertical-align: -3px; margin-right: 6px; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-danger {
+    background: var(--red-tint); color: var(--red); border: none; padding: 6px 13px; border-radius: 980px;
+    font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .btn-danger:hover { background: var(--red-tint-hover); }
+  /* ---- Update notification + About ----
+     The banner sits in the normal document flow at the top of the content
+     column rather than floating over it: an update is not urgent enough to
+     cover a camera feed, and a bar that pushes content down can never hide a
+     control someone is reaching for. */
+  .update-bar {
+    display: none; align-items: center; gap: 14px; margin: 0 0 18px;
+    padding: 13px 18px; border-radius: 14px;
+    background: var(--blue-tint); border: 1px solid rgba(0,113,227,0.22);
+  }
+  .update-bar.shown { display: flex; }
+  .update-bar .u-icon { width: 20px; height: 20px; color: var(--blue); flex-shrink: 0; }
+  .update-bar .u-text { flex: 1; font-size: 13.5px; color: var(--text); line-height: 1.5; }
+  .update-bar .u-text b { font-weight: 600; }
+  .update-bar .u-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .update-pill {
+    background: var(--blue); color: #fff; border: none; padding: 8px 16px; border-radius: 980px;
+    font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  .update-pill:hover { background: var(--blue-hover); }
+  .update-pill:disabled { opacity: 0.55; cursor: not-allowed; }
+  .update-ghost {
+    background: transparent; color: var(--text-dim); border: none; padding: 8px 12px;
+    border-radius: 980px; font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit;
+  }
+  .update-ghost:hover { background: var(--hover-fill); color: var(--text); }
+  .progress-track { height: 5px; border-radius: 999px; background: var(--fill); overflow: hidden; margin-top: 9px; }
+  .progress-fill { height: 100%; background: var(--blue); border-radius: 999px; width: 0%; transition: width 0.25s ease; }
+
+  .about-grid { display: grid; grid-template-columns: 150px 1fr; gap: 13px 20px; padding: 20px 24px; font-size: 14px; }
+  .about-grid dt { color: var(--text-faint); }
+  .about-grid dd { margin: 0; color: var(--text); font-weight: 500; }
+  .about-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .about-head { display: flex; align-items: center; gap: 16px; padding: 24px; border-bottom: 1px solid var(--line); }
+  .about-mark {
+    width: 52px; height: 52px; border-radius: 13px; background: var(--blue);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .about-mark svg { width: 27px; height: 27px; color: #fff; }
+  .about-name { font-size: 21px; font-weight: 700; letter-spacing: -0.5px; }
+  .about-ver { font-size: 13.5px; color: var(--text-faint); margin-top: 2px; }
+  .form-msg { font-size: 13px; padding: 11px 14px; border-radius: 10px; }
+  .form-msg.success { background: var(--blue-tint); color: var(--blue); }
+  .form-msg.error { background: var(--red-tint); color: var(--red); }
+  .people-row { display: flex; align-items: center; justify-content: space-between; padding: 13px 24px; border-bottom: 1px solid var(--line); }
+  .people-row:last-child { border-bottom: none; }
+  .people-row .p-name { font-weight: 600; font-size: 13.5px; }
+
+  /* ---------- Cameras ---------- */
+  .camera-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 24px; border-bottom: 1px solid var(--line); }
+  .camera-row:last-child { border-bottom: none; }
+  .camera-row-name { font-weight: 600; font-size: 13.5px; }
+  .camera-row-meta { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+  .camera-row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .tag-pill.neutral { background: var(--badge-fill); color: var(--text-faint); }
+
+  /* ---------- Camera modal (Add / Manage) ---------- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .modal-box {
+    background: var(--panel); border-radius: 18px; box-shadow: var(--shadow-md);
+    width: 460px; max-width: 100%; max-height: 88vh; overflow-y: auto; padding: 22px 26px 26px;
+  }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .modal-close {
+    background: none; border: none; color: var(--text-faint); font-size: 20px; line-height: 1;
+    cursor: pointer; padding: 4px 6px; border-radius: 8px; font-family: inherit;
+  }
+  .modal-close:hover { background: var(--hover-fill); color: var(--text); }
+
+  .method-tabs { display: flex; flex-direction: column; gap: 8px; }
+  .method-tab {
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .method-tab:hover { background: var(--hover-fill); }
+  .method-tab.active { border-color: var(--blue); background: var(--blue-tint); }
+  .method-tab-title { font-weight: 600; font-size: 13.5px; }
+  .method-tab.active .method-tab-title { color: var(--blue); }
+  .method-tab-sub { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+  .method-tab.active .method-tab-sub { color: var(--blue); opacity: 0.8; }
+
+  .discover-profile {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; border: 1.5px solid var(--line); cursor: pointer; margin-top: 6px;
+  }
+  .discover-profile:hover { background: var(--hover-fill); }
+  .discover-profile.selected { border-color: var(--blue); background: var(--blue-tint); }
+  .discover-profile-name { font-weight: 600; font-size: 12.5px; }
+  .discover-profile-url { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; color: var(--text-faint); margin-top: 2px; word-break: break-all; }
+  .discover-profile-res { font-size: 11.5px; color: var(--text-faint); flex-shrink: 0; }
+
+  .switch { position: relative; display: inline-block; width: 40px; height: 24px; flex-shrink: 0; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch-track { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: background 0.15s; }
+  .switch-track::before {
+    content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: transform 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .switch input:checked + .switch-track { background: var(--blue); }
+  .switch input:checked + .switch-track::before { transform: translateX(16px); }
+
+  .cam-tab { cursor: pointer; border: none; font-family: inherit; transition: background 0.15s; }
+  .cam-tab.active { background: var(--blue); }
+
+  /* ---------- Temporary Pass (visitors) ---------- */
+  .subtabs {
+    display: inline-flex; gap: 2px; background: var(--fill); padding: 3px;
+    border-radius: 11px; margin-bottom: 20px;
+  }
+  .subtab {
+    border: none; background: none; font-family: inherit; cursor: pointer;
+    font-size: 13px; font-weight: 550; color: var(--text-dim);
+    padding: 7px 15px; border-radius: 9px; transition: background 0.15s, color 0.15s;
+    display: flex; align-items: center; gap: 7px;
+  }
+  /* ---------- Mobile ---------- */
+  /* The sidebar is fixed-width and the grids below use fixed side-column
+     widths (300px, 380px) — on a phone-width viewport those just overflow
+     rather than reflowing, which is what made the site "look desktop" even
+     though the viewport meta tag was already correct. Below this breakpoint
+     the sidebar becomes an off-canvas drawer and the two-column layouts
+     collapse to one column. */
+  .menu-toggle { display: none; }
+  .sidebar-scrim { display: none; }
+  @media (max-width: 860px) {
+    .menu-toggle {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 9px; border: none;
+      background: var(--fill); color: var(--text-dim); cursor: pointer; flex-shrink: 0;
+    }
+    .menu-toggle svg { width: 18px; height: 18px; }
+    .topbar { padding: 0 14px; gap: 10px; }
+    .topbar-title { font-size: 16px; }
+    .topbar-right { gap: 10px; }
+    .clock { display: none; }
+    #restart-btn-label { display: none; }
+    #restart-btn { padding: 0 10px; }
+    .op-chip #op-role, .op-chip > div > div#op-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .sidebar {
+      position: fixed; top: 0; bottom: 0; left: 0; z-index: 400;
+      transform: translateX(-100%); transition: transform 0.2s ease;
+      box-shadow: var(--shadow-md);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-scrim {
+      display: block; position: fixed; inset: 0; z-index: 390;
+      background: rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+    }
+    .sidebar-scrim.open { opacity: 1; pointer-events: auto; }
+
+    .view { padding: 18px 16px; }
+    #alert-banner-host { left: 14px; right: 14px; top: 72px; max-width: none; }
+
+    .monitor-grid { grid-template-columns: 1fr; height: auto; }
+    .feed-panel { height: 320px; }
+    .register-grid { grid-template-columns: 1fr; }
+    .about-grid { grid-template-columns: 110px 1fr; }
+
+    /* Tables don't reflow to narrow screens gracefully — scroll them
+       horizontally instead of letting columns crush down to unreadable
+       widths. overflow-x/y split (rather than plain overflow:hidden, which
+       the desktop rule uses for rounded corners) keeps the corner clipping
+       while still allowing the horizontal scroll. */
+    .panel { overflow-x: auto; overflow-y: hidden; }
+    .panel table { min-width: 560px; }
+
+    .modal-box { width: 100%; }
+  }
+  .subtab:hover { color: var(--text); }
+  .subtab.active { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: var(--shadow-sm); }
+  .subtab-count {
+    font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px;
+    background: var(--badge-fill); color: var(--text-faint);
+  }
+  .subtab-count.alert { background: var(--red-tint); color: var(--red); }
+  .subtab-count.live { background: var(--blue-tint); color: var(--blue); }
+  .subview { display: none; }
+  .subview.active { display: block; }
+
+  .visitor-grid { display: grid; grid-template-columns: 400px 1fr; gap: 16px; align-items: start; }
+
+  /* Capture stage: the live webcam, the frozen shot, and the upload fallback
+     all occupy the same box so the form does not jump as the guard works. */
+  .capture-stage {
+    position: relative; width: 100%; aspect-ratio: 4 / 3; background: #0A0A0C;
+    border-radius: 12px; overflow: hidden; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .capture-stage video, .capture-stage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .capture-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    color: rgba(255,255,255,0.45); font-size: 12.5px; text-align: center; padding: 20px;
+  }
+  .capture-placeholder svg { width: 30px; height: 30px; }
+  .capture-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .capture-actions button { flex: 1; padding: 10px 14px; font-size: 13px; }
+  .shutter-flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+  }
+  .shutter-flash.fire { animation: shutter 0.4s ease-out; }
+  @keyframes shutter { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+
+  .duration-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .duration-chip {
+    border: 1.5px solid var(--line); background: none; font-family: inherit;
+    border-radius: 980px; padding: 7px 15px; font-size: 13px; font-weight: 550;
+    color: var(--text-dim); cursor: pointer; transition: all 0.15s;
+  }
+  .duration-chip:hover { background: var(--hover-fill); }
+  .duration-chip.active { border-color: var(--blue); background: var(--blue-tint); color: var(--blue); font-weight: 600; }
+
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 19px; height: 19px; border-radius: 50%; background: var(--blue);
+    color: #fff; font-size: 11px; font-weight: 700; margin-right: 8px; flex-shrink: 0;
+  }
+  .step-head { display: flex; align-items: center; font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+
+  .visitor-card {
+    display: flex; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--line); align-items: center;
+  }
+  .visitor-card:last-child { border-bottom: none; }
+  .visitor-photo {
+    width: 58px; height: 58px; border-radius: 12px; object-fit: cover; flex-shrink: 0;
+    background: var(--fill);
+  }
+  .visitor-photo.lg { width: 76px; height: 76px; }
+  .visitor-photo.missing {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint); font-size: 18px; font-weight: 700;
+  }
+  .visitor-main { flex: 1; min-width: 0; }
+  .visitor-name { font-weight: 650; font-size: 14.5px; letter-spacing: -0.2px; }
+  .visitor-meta { font-size: 12.5px; color: var(--text-faint); margin-top: 3px; line-height: 1.55; }
+  .visitor-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: center; }
+  .visitor-actions button { padding: 8px 15px; font-size: 12.5px; border-radius: 980px; }
+
+  .tag-pill.warn { background: var(--red-tint); color: var(--red); }
+  .tag-pill.pending { background: rgba(245,166,35,0.16); color: #B8730A; }
+  :root[data-theme="dark"] .tag-pill.pending { color: #FFB340; }
+
+  .countdown { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--blue); }
+  .countdown.low { color: var(--red); }
+
+  .btn-approve {
+    background: var(--blue); color: #fff; border: none; font-family: inherit;
+    font-weight: 600; cursor: pointer; transition: background 0.15s;
+  }
+  .btn-approve:hover { background: var(--blue-hover); }
+  .btn-approve:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* The just-submitted request, shown to the guard so they can watch it turn
+     from pending into approved without navigating anywhere. */
+  .pass-result { border-radius: 14px; padding: 18px 20px; display: flex; gap: 14px; align-items: center; }
+  .pass-result.pending { background: rgba(245,166,35,0.12); }
+  .pass-result.approved { background: var(--blue-tint); }
+  .pass-result.rejected { background: var(--red-tint); }
+  .pass-result-title { font-weight: 700; font-size: 15px; letter-spacing: -0.2px; }
+  .pass-result-sub { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+  .spinner {
+    width: 15px; height: 15px; border: 2px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .role-note {
+    font-size: 12.5px; color: var(--text-faint); background: var(--fill);
+    padding: 9px 13px; border-radius: 9px; line-height: 1.5;
+  }
+  .op-role { font-size: 10.5px; color: var(--text-faint); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">Sentra</div>
+        <div class="brand-sub">CCTV Intelligence</div>
+      </div>
+    </div>
+    <div class="nav">
+      <div class="nav-label">Operations</div>
+      <div class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" data-view="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        Person search
+      </div>
+      <div class="nav-item" data-view="live">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg>
+        Live monitor
+      </div>
+      <div class="nav-item" data-view="cameras">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h11l5-3v14l-5-3H4z"/><rect x="1" y="8" width="3" height="8" rx="1"/></svg>
+        Cameras
+      </div>
+      <div class="nav-item" data-view="visitors">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2.2"/><path d="M5.5 16.5a3.8 3.8 0 017 0"/><path d="M15 9.5h4M15 13h4"/></svg>
+        Visitor Management
+        <span class="nav-badge" id="nav-visitor-count" style="display:none"></span>
+      </div>
+      <div class="nav-item" data-view="register">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+        Register person
+      </div>
+      <div class="nav-item" data-view="alerts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 015 5v3l2 5H5l2-5V7a5 5 0 015-5z"/><path d="M9 20a3 3 0 006 0"/></svg>
+        Smart alerts
+        <span class="nav-badge" id="nav-alert-count" style="display:none"></span>
+      </div>
+      <div class="nav-label">System</div>
+      <div class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 01-4 0v-.1A1.7 1.7 0 008 19.3a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H2a2 2 0 010-4h.1A1.7 1.7 0 004.7 8a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 012.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V2a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 012.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H22a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>
+        Settings
+        <span class="nav-badge" id="nav-update-dot" style="display:none">1</span>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <b>Delhi Public School Bangalore East</b><br><span id="sidebar-sub">Connecting…</span>
+    </div>
+  </div>
+
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+  <div id="alert-banner-host"></div>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-toggle" id="menu-toggle" title="Menu" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="topbar-title" id="page-title">Security overview</div>
+      <div class="topbar-right">
+        <div class="clock" id="clock">--:--:--</div>
+        <button class="btn-secondary" id="restart-btn" onclick="restartEngine()" title="Restart the AI engine: reloads the model and reconnects the camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 3v6h-6"/></svg>
+          <span id="restart-btn-label">Restart engine</span>
+        </button>
+        <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+        <div class="status-pill" id="backend-badge"><span class="dot pulse"></span>Connecting…</div>
+        <div class="op-chip" id="op-chip" title="Sign out" onclick="signOut()" style="cursor:pointer;">
+          <div class="op-avatar" id="op-avatar">–</div>
+          <div>
+            <div id="op-name">Signing in…</div>
+            <div class="op-role" id="op-role"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view">
+
+      <!-- Shown on every tab once the automatic check finds a newer build.
+           Sits above the active view rather than floating over it, and is
+           dismissible: an update must never cover a live camera feed. -->
+      <div class="update-bar" id="update-bar">
+        <svg class="u-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.2-8.6"/><path d="M21 3v6h-6"/></svg>
+        <div class="u-text">
+          <div id="update-bar-text">A new version of Sentra is available.</div>
+          <div class="progress-track" id="update-bar-progress" style="display:none"><div class="progress-fill" id="update-bar-fill"></div></div>
+        </div>
+        <div class="u-actions" id="update-bar-actions"></div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="view-section active" id="view-dashboard">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">Cameras online</div>
+            <div class="stat-value" id="stat-cameras">–/1</div>
+            <div class="stat-sub" id="stat-cameras-sub">Checking status…</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Registered individuals</div>
+            <div class="stat-value" id="stat-people">–</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Detections today</div>
+            <div class="stat-value blue" id="stat-detections">–</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Visitors on premises</div>
+            <div class="stat-value" id="stat-visitors">–</div>
+            <div class="stat-sub" id="stat-visitors-sub">Temporary passes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Alerts today</div>
+            <div class="stat-value faint" id="stat-alerts">–</div>
+            <div class="stat-sub" id="stat-alerts-sub">Fights &amp; visitor overstays</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Recent activity</div>
+            <div class="live-tag" id="activity-live-tag"><span class="dot"></span>Live</div>
+          </div>
+          <table>
+            <thead><tr><th>Time</th><th>Person</th><th>Camera</th><th>Status</th></tr></thead>
+            <tbody id="activity-feed"><tr><td colspan="4" class="empty-hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PERSON SEARCH -->
+      <div class="view-section" id="view-search">
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search a registered name…" list="people-datalist" />
+          <datalist id="people-datalist"></datalist>
+          <button onclick="runSearch()">Search</button>
+        </div>
+        <div id="search-results">
+          <div class="panel empty-hint">
+            Search a registered individual to see their last known location and full detection timeline.
+            <div class="hint-list" id="search-hint">Loading registered names…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE MONITOR -->
+      <div class="view-section" id="view-live">
+        <div class="monitor-grid">
+          <div class="feed-panel">
+            <div class="feed-topbar">
+              <div class="cam-tabs" id="cam-tabs"></div>
+              <div class="live-tag off" id="live-tag" style="color:rgba(255,255,255,0.5);">
+                <span class="dot"></span><span id="live-tag-text">Waiting for engine…</span>
+              </div>
+            </div>
+            <div class="feed-view" id="feed-view">
+              <div class="feed-offline" id="feed-offline">
+                <div class="icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2"><path d="M2 2l20 20"/><path d="M16 10l6-3v10l-6-3z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>
+                </div>
+                <div class="feed-offline-title">Camera offline</div>
+                <div class="feed-offline-sub">Waiting for the AI engine to connect to <span class="live-cam-name">the camera</span>.</div>
+              </div>
+            </div>
+            <div class="feed-footer">
+              <span class="live-cam-name" id="feed-cam-label">Camera</span>
+              <span id="feed-res">–</span>
+            </div>
+          </div>
+          <div class="side-panel">
+            <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+              <div class="panel-header"><div class="panel-title">Currently detected</div></div>
+              <div style="padding:14px; display:flex; flex-direction:column; gap:8px;" id="detected-list">
+                <div style="color:var(--text-faint); font-size:12.5px; padding:8px;">No faces in frame</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CAMERAS -->
+      <div class="view-section" id="view-cameras">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Cameras</div>
+            <button class="btn-primary" style="padding:9px 18px; font-size:13px;" onclick="openAddCameraModal()">+ Add Camera</button>
+          </div>
+          <div id="cameras-list"><div class="empty-hint" style="padding:22px 24px;">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- CAMERA MODAL (Add / Manage — shared markup, driven by JS state) -->
+      <div class="modal-overlay" id="camera-modal-overlay" style="display:none;">
+        <div class="modal-box">
+          <div class="modal-header">
+            <div class="panel-title" id="camera-modal-title">Add camera</div>
+            <button class="modal-close" onclick="closeCameraModal()">&times;</button>
+          </div>
+          <div class="field-hint" id="camera-modal-subtitle" style="margin-bottom:14px;">
+            Changes take effect the next time the AI engine restarts.
+          </div>
+
+          <div class="register-form" style="padding:0; gap:14px;">
+            <div>
+              <label class="field-label">Camera name</label>
+              <input type="text" id="cm-name" placeholder="e.g. Main Gate" />
+            </div>
+            <div>
+              <label class="field-label">Location <span style="color:var(--text-faint); font-weight:400;">(optional)</span></label>
+              <input type="text" id="cm-location" placeholder="e.g. Building A entrance" />
+            </div>
+            <div>
+              <label class="field-label">Description <span style="color:var(--text-faint); font-weight:400;">(optional)</span></label>
+              <input type="text" id="cm-description" placeholder="Notes about this camera" />
+            </div>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); padding:12px 14px; border-radius:10px;">
+              <div>
+                <div style="font-weight:600; font-size:13px;">Run AI detection</div>
+                <div class="field-hint" style="margin-top:2px;">Face recognition + fight detection on this camera.</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="cm-ai-enabled" checked /><span class="switch-track"></span></label>
+            </div>
+
+            <div>
+              <label class="field-label">Connection method</label>
+              <div class="method-tabs">
+                <div class="method-tab active" data-method="onvif" onclick="setCameraMethod('onvif')">
+                  <div class="method-tab-title">Use IP Address &amp; Password</div>
+                  <div class="method-tab-sub">Recommended — automatically finds the RTSP URL</div>
+                </div>
+                <div class="method-tab" data-method="manual" onclick="setCameraMethod('manual')">
+                  <div class="method-tab-title">Enter RTSP URL manually</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="cm-onvif-fields">
+              <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px;">
+                <div><label class="field-label">Camera IP address</label><input type="text" id="cm-ip" placeholder="192.168.1.50" /></div>
+                <div><label class="field-label">ONVIF port</label><input type="text" id="cm-port" placeholder="8000" /></div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;">
+                <div><label class="field-label">Username</label><input type="text" id="cm-username" placeholder="admin" /></div>
+                <div><label class="field-label">Password</label><input type="password" id="cm-password" placeholder="••••••••" /></div>
+              </div>
+              <div class="field-hint" id="cm-password-hint" style="display:none; margin-top:6px;">A password is already saved for this camera. Leave blank to keep it.</div>
+              <button class="btn-secondary" style="margin-top:12px; width:100%; text-align:center;" id="cm-discover-btn" onclick="discoverCamera()">Discover RTSP URL</button>
+              <div id="cm-discover-msg" style="margin-top:10px;"></div>
+              <div id="cm-discover-results" style="display:none;"></div>
+            </div>
+
+            <div id="cm-manual-fields" style="display:none;">
+              <label class="field-label">RTSP URL</label>
+              <input type="text" id="cm-rtsp-url" placeholder="rtsp://192.168.1.50:554/stream1" />
+            </div>
+
+            <div id="cm-form-msg"></div>
+
+            <div style="display:flex; gap:10px; margin-top:4px;">
+              <button class="btn-primary" style="flex:1;" id="cm-save-btn" onclick="saveCameraModal()">Add camera</button>
+              <button class="btn-danger" id="cm-delete-btn" style="display:none;" onclick="deleteCameraModal()">Remove camera</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPORARY PASS (VISITORS) -->
+      <div class="view-section" id="view-visitors">
+        <div class="subtabs" id="visitor-subtabs">
+          <button class="subtab active" data-sub="new">New visitor</button>
+          <button class="subtab" data-sub="pending">
+            Awaiting approval <span class="subtab-count" id="sub-count-pending">0</span>
+          </button>
+          <button class="subtab" data-sub="onsite">
+            On premises <span class="subtab-count live" id="sub-count-onsite">0</span>
+          </button>
+          <button class="subtab" data-sub="overstay">
+            Overstay alerts <span class="subtab-count" id="sub-count-overstay">0</span>
+          </button>
+        </div>
+
+        <!-- New visitor: the guard's screen at the gate -->
+        <div class="subview active" id="sub-new">
+          <div class="visitor-grid">
+            <div class="panel register-form">
+              <div class="panel-title" style="margin-bottom:2px;">Sign in a visitor</div>
+              <div class="field-hint">
+                The pass is only issued once the security management team approves it.
+                Until then the visitor is not recognised by any camera.
+              </div>
+
+              <div>
+                <div class="step-head"><span class="step-num">1</span>Visitor's name</div>
+                <input type="text" id="vis-name" placeholder="e.g. Ramesh Kumar" />
+              </div>
+
+              <div>
+                <div class="step-head"><span class="step-num">2</span>Photo</div>
+                <div class="capture-stage" id="vis-stage">
+                  <div class="capture-placeholder" id="vis-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 8.5A2.5 2.5 0 015.5 6h1.2a2 2 0 001.7-1l.5-.9a2 2 0 011.7-1h2.8a2 2 0 011.7 1l.5.9a2 2 0 001.7 1h1.2A2.5 2.5 0 0121 8.5v8A2.5 2.5 0 0118.5 19h-13A2.5 2.5 0 013 16.5z"/>
+                      <circle cx="12" cy="12.5" r="3.4"/>
+                    </svg>
+                    <span>Start the camera to photograph the visitor,<br>or upload a photo instead.</span>
+                  </div>
+                  <video id="vis-video" autoplay playsinline muted style="display:none;"></video>
+                  <img id="vis-preview" style="display:none;" alt="Captured visitor photo" />
+                  <div class="shutter-flash" id="vis-flash"></div>
+                </div>
+                <div class="capture-actions">
+                  <button class="btn-secondary" id="vis-camera-btn" onclick="startVisitorCamera()">Start camera</button>
+                  <button class="btn-primary" id="vis-capture-btn" onclick="captureVisitorPhoto()" style="display:none;">Take photo</button>
+                  <button class="btn-secondary" id="vis-retake-btn" onclick="retakeVisitorPhoto()" style="display:none;">Retake</button>
+                </div>
+                <label class="file-drop" style="margin-top:8px; padding:11px;">
+                  <input type="file" id="vis-file" accept="image/*" />
+                  Or upload a photo from this device
+                </label>
+                <div id="vis-photo-msg" style="margin-top:8px;"></div>
+              </div>
+
+              <div>
+                <div class="step-head"><span class="step-num">3</span>How long is the visit?</div>
+                <div class="duration-presets" id="vis-durations">
+                  <button class="duration-chip" data-minutes="30" onclick="setVisitDuration(30, this)">30 min</button>
+                  <button class="duration-chip active" data-minutes="60" onclick="setVisitDuration(60, this)">1 hour</button>
+                  <button class="duration-chip" data-minutes="120" onclick="setVisitDuration(120, this)">2 hours</button>
+                  <button class="duration-chip" data-minutes="240" onclick="setVisitDuration(240, this)">4 hours</button>
+                  <button class="duration-chip" data-minutes="480" onclick="setVisitDuration(480, this)">Full day</button>
+                </div>
+                <div class="field-hint" style="margin-top:8px;" id="vis-duration-hint">
+                  The clock starts when the visit is approved, not now.
+                </div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div>
+                  <label class="field-label">Visiting <span style="color:var(--text-faint); font-weight:400;">(optional)</span></label>
+                  <input type="text" id="vis-host" placeholder="e.g. Principal" />
+                </div>
+                <div>
+                  <label class="field-label">Purpose <span style="color:var(--text-faint); font-weight:400;">(optional)</span></label>
+                  <input type="text" id="vis-purpose" placeholder="e.g. Parent meeting" />
+                </div>
+              </div>
+
+              <button class="btn-primary" id="vis-submit" onclick="submitVisitRequest()">Get approval</button>
+              <div id="vis-msg"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header"><div class="panel-title">This visit</div></div>
+              <div id="vis-result" style="padding:20px;">
+                <div class="empty-hint" style="padding:34px 10px;">
+                  Fill in the visitor's details and request approval. The decision will
+                  appear here as soon as management makes it.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Awaiting approval -->
+        <div class="subview" id="sub-pending">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Requests awaiting approval</div>
+              <div class="live-tag" id="pending-live-tag"><span class="dot"></span>Live</div>
+            </div>
+            <div id="pending-list"><div class="empty-hint">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- On premises -->
+        <div class="subview" id="sub-onsite">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Visitors currently on the premises</div>
+              <div class="live-tag" id="onsite-live-tag"><span class="dot"></span>Live</div>
+            </div>
+            <div id="onsite-list"><div class="empty-hint">Loading…</div></div>
+          </div>
+          <div class="panel" style="margin-top:18px;">
+            <div class="panel-header"><div class="panel-title">Finished visits</div></div>
+            <div id="finished-list"><div class="empty-hint">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- Overstay alerts -->
+        <div class="subview" id="sub-overstay">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Visitors seen after their pass expired</div>
+              <div class="live-tag" id="overstay-live-tag"><span class="dot"></span>Live</div>
+            </div>
+            <div id="overstay-list"><div class="empty-hint">Loading…</div></div>
+          </div>
+          <div class="panel" style="margin-top:18px;">
+            <div class="panel-header"><div class="panel-title">How this works</div></div>
+            <div style="padding:18px 20px; color:var(--text-dim); font-size:14px; line-height:1.65">
+              An approved visitor is recognised by the same face-matching pipeline as
+              enrolled staff and students, using the photo taken at the gate. The engine
+              keeps watching for them after their pass expires — that is the point — and
+              raises an alert the moment they are seen on any camera. Repeat sightings of
+              the same visitor are collapsed into one alert per hour, so a visitor
+              standing in view does not flood the log. Alerts also appear in Smart alerts
+              alongside altercation detection.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REGISTER PERSON -->
+      <div class="view-section" id="view-register">
+        <div class="register-grid">
+          <div class="panel register-form">
+            <div class="panel-title" style="margin-bottom:4px;">Add / update a person</div>
+            <div class="field-hint">
+              Photos are saved to <span class="mono">Faces/&lt;name&gt;/</span> and embedded with the
+              same InsightFace pipeline as <span class="mono">face_register.py</span>. Each photo must
+              contain exactly one clear face — anything else is skipped, never guessed.
+            </div>
+            <div>
+              <label class="field-label">Full name</label>
+              <input type="text" id="reg-name" placeholder="e.g. Dhaya" />
+            </div>
+            <div>
+              <label class="field-label">Photos (front / left / right recommended)</label>
+              <label class="file-drop">
+                <input type="file" id="reg-files" accept="image/*" multiple />
+                Click to choose image files
+              </label>
+              <div class="file-list" id="reg-file-list"></div>
+            </div>
+            <button class="btn-primary" id="reg-submit" onclick="submitRegistration()">Register person</button>
+            <div id="reg-msg"></div>
+
+            <!-- Bulk route. The published installer ships with no registered
+                 people, so this is how a new machine receives an existing
+                 roster without re-photographing everyone. -->
+            <div style="border-top:1px solid var(--line); margin-top:22px; padding-top:20px">
+              <div class="panel-title" style="margin-bottom:4px;">Import a data pack</div>
+              <div class="field-hint">
+                Restores everyone from an existing Sentra system in one step — registered
+                faces, their photos, and detection history. Ask whoever set up your
+                organisation's first machine to export one from Settings.
+              </div>
+              <label class="file-drop" style="margin-top:12px">
+                <input type="file" id="pack-file" accept=".sentra,.zip" />
+                Choose a <span class="mono">.sentra</span> file
+              </label>
+              <div class="file-list" id="pack-file-name"></div>
+              <button class="btn-secondary" id="pack-submit" style="margin-top:12px" onclick="importDataPack()">Import data pack</button>
+              <div id="pack-msg" style="margin-top:12px"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Registered people</div></div>
+            <div id="people-list"><div class="empty-hint">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ALERTS -->
+      <div class="view-section" id="view-alerts">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Smart alerts — physical altercation detection</div>
+            <div class="live-tag" id="alerts-live-tag"><span class="dot"></span>Live</div>
+          </div>
+          <table>
+            <thead><tr><th>Time</th><th>Type</th><th>People involved</th><th>Confidence</th><th>Camera</th></tr></thead>
+            <tbody id="alerts-body">
+              <tr><td colspan="5" class="empty-hint">Loading alerts…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-header"><div class="panel-title">How this works</div></div>
+          <div style="padding:18px 20px; color:var(--text-dim); font-size:14px; line-height:1.65">
+            The AI engine tracks every person in frame with a multi-person pose model, then scores
+            each pair on three signals: how close they are, how fast their limbs are moving, and
+            whether hands are reaching into the other person's body space. An alert is raised only
+            when the combined score stays high across consecutive checks — a single noisy frame,
+            a handshake, or two people simply standing close together will not trigger it.
+            People are named where the face is recognized, and listed as Unknown otherwise.
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS / ABOUT -->
+      <div class="view-section" id="view-settings">
+        <div class="panel">
+          <div class="about-head">
+            <div class="about-mark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6l8-4z"/><circle cx="12" cy="11" r="2.6"/></svg>
+            </div>
+            <div>
+              <div class="about-name">Sentra</div>
+              <div class="about-ver" id="about-tagline">CCTV Intelligence</div>
+            </div>
+          </div>
+          <dl class="about-grid">
+            <dt>Version</dt><dd class="about-mono" id="about-version">—</dd>
+            <dt>Build date</dt><dd class="about-mono" id="about-build-date">—</dd>
+            <dt>Build channel</dt><dd id="about-channel">—</dd>
+            <dt>Licensed to</dt><dd id="about-publisher">—</dd>
+          </dl>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-header"><div class="panel-title">Software updates</div></div>
+          <div style="padding:20px 24px">
+            <div style="font-size:14px; color:var(--text-dim); line-height:1.6; margin-bottom:16px">
+              Sentra checks for updates automatically each time it starts. Updates never touch your
+              data — detections, registered faces, visitor records, camera configuration and logs
+              all carry across untouched.
+            </div>
+            <div id="settings-update-state" style="font-size:14px; margin-bottom:16px">Checking…</div>
+            <div class="progress-track" id="settings-progress" style="display:none; margin-bottom:16px"><div class="progress-fill" id="settings-progress-fill"></div></div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap" id="settings-update-actions"></div>
+            <div style="font-size:12.5px; color:var(--text-faint); margin-top:16px" id="settings-last-checked"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="panel-header"><div class="panel-title">Transfer this system to another machine</div></div>
+          <div style="padding:20px 24px">
+            <div style="font-size:14px; color:var(--text-dim); line-height:1.6; margin-bottom:16px">
+              Exports every registered person, their photos, the visitor records and the
+              detection history into a single file. On the new machine, open
+              <b>Register person</b> and import it there — nobody has to be re-registered
+              by hand.
+            </div>
+            <div class="form-msg" style="background:var(--fill); color:var(--text-dim); margin-bottom:16px">
+              This file contains photographs and face data of real people. Send it the way
+              you would send any confidential record — not to a public link.
+            </div>
+            <button class="btn-secondary" id="export-pack-btn" onclick="exportDataPack()">Export data pack</button>
+            <div id="export-pack-msg" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// Redirect to the login page if a session ever lapses mid-use.
+const _rawFetch = window.fetch;
+window.fetch = async (...args) => {
+  const res = await _rawFetch(...args);
+  if (res.status === 401) { window.location.href = '/login'; }
+  return res;
+};
+
+const pageTitles = { dashboard: "Security overview", search: "Person search", live: "Live AI monitor", cameras: "Camera management", visitors: "Visitor Management", register: "Register person", alerts: "Smart alerts", settings: "Settings" };
+
+function esc(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// ---------- Who is signed in ----------
+// Drives the operator chip and hides the controls this role cannot use. The
+// backend refuses those actions independently — this is presentation, not the
+// permission itself (see require_admin in main.py).
+let currentUser = null;
+const isAdmin = () => currentUser && currentUser.role === 'admin';
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) return;
+    currentUser = await res.json();
+    const initials = currentUser.display.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    document.getElementById('op-avatar').textContent = initials;
+    document.getElementById('op-name').textContent = currentUser.display;
+    document.getElementById('op-role').textContent =
+      currentUser.role === 'admin' ? 'Security management' : 'Gate access';
+  } catch (e) { /* the chip keeps its placeholder; nothing else depends on it */ }
+}
+
+async function signOut() {
+  if (!confirm('Sign out of Sentra?')) return;
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+// ---------- Mobile sidebar drawer ----------
+const sidebarEl = document.querySelector('.sidebar');
+const sidebarScrim = document.getElementById('sidebar-scrim');
+function closeSidebar() {
+  sidebarEl.classList.remove('open');
+  sidebarScrim.classList.remove('open');
+}
+document.getElementById('menu-toggle').addEventListener('click', () => {
+  sidebarEl.classList.add('open');
+  sidebarScrim.classList.add('open');
+});
+sidebarScrim.addEventListener('click', closeSidebar);
+
+// ---------- Nav switching ----------
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
+    item.classList.add('active');
+    const view = item.dataset.view;
+    document.getElementById('view-' + view).classList.add('active');
+    document.getElementById('page-title').textContent = pageTitles[view];
+    // Release the webcam when leaving the gate screen. Leaving it running
+    // would keep the recording indicator lit on a tab nobody is looking at.
+    if (view !== 'visitors') stopVisitorCamera();
+    closeSidebar();
+  });
+});
+
+// ---------- Version and updates ----------
+// The backend checks on its own shortly after launch; this polls the result
+// rather than driving the check, so the notification appears whether the
+// operator is on this tab or not. Nothing installs without an explicit click.
+
+let updateState = null;
+
+async function loadVersion() {
+  try {
+    const info = await (await fetch('/api/version')).json();
+    document.getElementById('about-version').textContent = info.version;
+    document.getElementById('about-build-date').textContent = info.build_date;
+    document.getElementById('about-publisher').textContent = info.publisher;
+    document.getElementById('about-tagline').textContent = `CCTV Intelligence · Version ${info.version}`;
+    document.getElementById('about-channel').textContent =
+      info.channel === 'release' ? 'Release' : 'Running from source (development)';
+  } catch (e) { /* About stays on its placeholders; nothing else depends on it */ }
+}
+
+// Callers that must not print anything for an unknown size guard on the value
+// first, so 0 here always means "nothing transferred yet" and reads better as
+// "0 KB" than as a blank gap mid-sentence.
+function fmtBytes(n) {
+  if (!n) return '0 KB';
+  const kb = n / 1024, mb = kb / 1024, gb = mb / 1024;
+  if (gb >= 1) return gb.toFixed(2) + ' GB';
+  // One decimal below 100 MB so a small file never rounds down to "0 MB".
+  if (mb >= 100) return mb.toFixed(0) + ' MB';
+  if (mb >= 1) return mb.toFixed(1) + ' MB';
+  return Math.max(1, Math.round(kb)) + ' KB';
+}
+
+// Dismissal lives in sessionStorage on purpose: hiding the bar should last as
+// long as the operator's shift, not forever. A restart brings it back, and the
+// Settings tab always shows the true state regardless.
+function dismissKey(v) { return 'sentra-update-dismissed-' + v; }
+
+function dismissUpdate() {
+  if (updateState && updateState.latest_version) {
+    sessionStorage.setItem(dismissKey(updateState.latest_version), '1');
+  }
+  document.getElementById('update-bar').classList.remove('shown');
+}
+
+async function updateAction(path, button) {
+  if (button) button.disabled = true;
+  try {
+    updateState = await (await fetch(path, { method: 'POST' })).json();
+    renderUpdate();
+  } catch (e) {
+    if (button) button.disabled = false;
+  }
+}
+
+const checkForUpdates = (btn) => updateAction('/api/update/check', btn);
+const downloadUpdate  = (btn) => updateAction('/api/update/download', btn);
+const dismissStaged   = (btn) => updateAction('/api/update/dismiss', btn);
+
+async function installUpdate(btn) {
+  if (!confirm(
+    'Sentra will close, install the update, and reopen.\n\n' +
+    'Your detections, registered faces, visitor records and camera settings are kept.'
+  )) return;
+  await updateAction('/api/update/install', btn);
+}
+
+async function pollUpdateState() {
+  try {
+    updateState = await (await fetch('/api/update/state')).json();
+    renderUpdate();
+  } catch (e) { /* transient; the next poll retries */ }
+}
+
+function renderUpdate() {
+  const s = updateState;
+  if (!s) return;
+
+  const bar        = document.getElementById('update-bar');
+  const barText    = document.getElementById('update-bar-text');
+  const barActions = document.getElementById('update-bar-actions');
+  const barProg    = document.getElementById('update-bar-progress');
+  const barFill    = document.getElementById('update-bar-fill');
+  const navDot     = document.getElementById('nav-update-dot');
+
+  const panel      = document.getElementById('settings-update-state');
+  const panelBtns  = document.getElementById('settings-update-actions');
+  const panelProg  = document.getElementById('settings-progress');
+  const panelFill  = document.getElementById('settings-progress-fill');
+  const lastCheck  = document.getElementById('settings-last-checked');
+
+  const admin = isAdmin();
+  const ver = esc(s.latest_version || '');
+  const pct = Math.round((s.progress || 0) * 100);
+
+  // --- The bar: only the states an operator can act on -------------------
+  const actionable = ['available', 'downloading', 'ready'].includes(s.status);
+  const dismissed = s.latest_version && sessionStorage.getItem(dismissKey(s.latest_version));
+  bar.classList.toggle('shown', actionable && !dismissed);
+  navDot.style.display = actionable ? '' : 'none';
+
+  barProg.style.display = s.status === 'downloading' ? '' : 'none';
+  barFill.style.width = pct + '%';
+
+  if (s.status === 'available') {
+    barText.innerHTML = `<b>Sentra ${ver} is available.</b> ${s.size ? 'Download is ' + fmtBytes(s.size) + '.' : ''}`;
+    barActions.innerHTML = admin
+      ? `<button class="update-pill" onclick="downloadUpdate(this)">Download</button>
+         <button class="update-ghost" onclick="dismissUpdate()">Later</button>`
+      : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`;
+  } else if (s.status === 'downloading') {
+    barText.innerHTML = `<b>Downloading Sentra ${ver}…</b> ${fmtBytes(s.downloaded)}${s.size ? ' of ' + fmtBytes(s.size) : ''}`;
+    barActions.innerHTML = '';
+  } else if (s.status === 'ready') {
+    barText.innerHTML = `<b>Sentra ${ver} is ready to install.</b> Your data is kept.`;
+    barActions.innerHTML = admin
+      ? `<button class="update-pill" onclick="installUpdate(this)">Install and restart</button>
+         <button class="update-ghost" onclick="dismissUpdate()">Later</button>`
+      : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`;
+  }
+
+  // --- The Settings panel: the whole truth, including errors -------------
+  panelProg.style.display = s.status === 'downloading' ? '' : 'none';
+  panelFill.style.width = pct + '%';
+
+  const notes = s.notes ? `<div style="margin-top:10px; color:var(--text-dim); font-size:13.5px; line-height:1.6">${esc(s.notes)}</div>` : '';
+  let body, buttons;
+
+  switch (s.status) {
+    case 'checking':
+      body = 'Checking for updates…'; buttons = ''; break;
+    case 'up_to_date':
+      body = `<span style="color:var(--blue); font-weight:600">Sentra is up to date.</span> You are running version ${esc(s.current_version)}.`;
+      buttons = `<button class="btn-secondary" onclick="checkForUpdates(this)">Check for updates</button>`;
+      break;
+    case 'available':
+      body = `<b>Version ${ver} is available.</b>${s.release_date ? ' Released ' + esc(s.release_date) + '.' : ''}${s.size ? ' Download is ' + fmtBytes(s.size) + '.' : ''}${notes}`;
+      buttons = admin
+        ? `<button class="btn-primary" onclick="downloadUpdate(this)">Download update</button>
+           <button class="btn-secondary" onclick="checkForUpdates(this)">Check again</button>`
+        : `<div class="form-msg" style="background:var(--fill); color:var(--text-dim)">Only the security management team can install updates.</div>`;
+      break;
+    case 'downloading':
+      body = `Downloading version ${ver} — ${fmtBytes(s.downloaded)}${s.size ? ' of ' + fmtBytes(s.size) : ''} (${pct}%)`;
+      buttons = ''; break;
+    case 'ready':
+      body = `<b>Version ${ver} is downloaded and verified.</b> Sentra will close and reopen during installation.${notes}`;
+      buttons = admin
+        ? `<button class="btn-primary" onclick="installUpdate(this)">Install and restart</button>
+           <button class="btn-secondary" onclick="dismissStaged(this)">Discard download</button>`
+        : `<div class="form-msg" style="background:var(--fill); color:var(--text-dim)">Only the security management team can install updates.</div>`;
+      break;
+    case 'installing':
+      body = 'The installer has started. Sentra will close and reopen shortly.'; buttons = ''; break;
+    case 'error':
+      body = `<span style="color:var(--red); font-weight:600">Update check failed.</span><div style="margin-top:8px; color:var(--text-dim); font-size:13.5px">${esc(s.error)}</div>`;
+      buttons = `<button class="btn-secondary" onclick="checkForUpdates(this)">Try again</button>`;
+      break;
+    default:
+      body = `You are running version ${esc(s.current_version)}.`;
+      buttons = `<button class="btn-secondary" onclick="checkForUpdates(this)">Check for updates</button>`;
+  }
+
+  if (!s.supported && ['available', 'ready'].includes(s.status)) {
+    buttons += `<div class="form-msg" style="background:var(--fill); color:var(--text-dim); width:100%; margin-top:10px">
+      Automatic installation runs on Windows. On this machine the download can be run manually.</div>`;
+  }
+
+  panel.innerHTML = body;
+  panelBtns.innerHTML = buttons;
+  lastCheck.textContent = s.last_checked_iso
+    ? 'Last checked ' + new Date(s.last_checked_iso).toLocaleString()
+    : '';
+}
+
+// Fast while something is in flight, slow otherwise — the slow tick is what
+// catches the backend's own startup check finishing.
+function scheduleUpdatePoll() {
+  const busy = updateState && ['checking', 'downloading'].includes(updateState.status);
+  setTimeout(async () => { await pollUpdateState(); scheduleUpdatePoll(); }, busy ? 1500 : 30000);
+}
+
+// ---------- Data pack (move a populated system to a new machine) ----------
+
+document.getElementById('pack-file').addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  document.getElementById('pack-file-name').textContent =
+    f ? `${f.name} — ${fmtBytes(f.size)}` : '';
+});
+
+async function exportDataPack() {
+  const btn = document.getElementById('export-pack-btn');
+  const msg = document.getElementById('export-pack-msg');
+  btn.disabled = true;
+  msg.className = '';
+  msg.textContent = 'Building the data pack…';
+  try {
+    const res = await fetch('/api/data-pack/export');
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Export failed.');
+    // Stream to a blob and trigger a download, rather than navigating away —
+    // navigating would tear down the dashboard's live sockets mid-download.
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Sentra-DataPack.sentra';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    msg.className = 'form-msg success';
+    msg.textContent = `Data pack downloaded (${fmtBytes(blob.size)}).`;
+  } catch (e) {
+    msg.className = 'form-msg error';
+    msg.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function importDataPack() {
+  const input = document.getElementById('pack-file');
+  const btn = document.getElementById('pack-submit');
+  const msg = document.getElementById('pack-msg');
+  const file = input.files[0];
+
+  if (!file) {
+    msg.className = 'form-msg error';
+    msg.textContent = 'Choose a .sentra file first.';
+    return;
+  }
+
+  btn.disabled = true;
+  msg.className = '';
+  msg.textContent = 'Importing…';
+
+  const body = new FormData();
+  body.append('file', file);
+
+  try {
+    const res = await fetch('/api/data-pack/import', { method: 'POST', body });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Import failed.');
+
+    const bits = [];
+    if (data.people_added) bits.push(`${data.people_added} added`);
+    if (data.people_updated) bits.push(`${data.people_updated} updated`);
+    let text = `Imported ${data.people_in_pack.length} people (${bits.join(', ') || 'no change'}), `
+             + `${data.face_photos} photos.`;
+    if (data.history_imported) {
+      const c = data.history_counts || {};
+      text += ` Detection history restored (${c.detections || 0} detections).`;
+    } else if (data.history_skipped_reason) {
+      text += ' ' + data.history_skipped_reason;
+    }
+    msg.className = 'form-msg success';
+    msg.textContent = text;
+
+    input.value = '';
+    document.getElementById('pack-file-name').textContent = '';
+    // Recognition reads the embeddings at startup and refreshes them
+    // periodically, so the list is the honest thing to refresh here.
+    loadPeopleList();
+  } catch (e) {
+    msg.className = 'form-msg error';
+    msg.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Restart engine ----------
+async function restartEngine() {
+  const btn = document.getElementById('restart-btn');
+  const label = document.getElementById('restart-btn-label');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  label.textContent = 'Restarting…';
+
+  try {
+    const res = await fetch('/api/engine/restart', { method: 'POST' });
+    if (!res.ok) {
+      label.textContent = 'Restart failed';
+      setTimeout(() => { label.textContent = 'Restart engine'; btn.disabled = false; }, 2500);
+      return;
+    }
+  } catch (e) {
+    label.textContent = 'Could not reach backend';
+    setTimeout(() => { label.textContent = 'Restart engine'; btn.disabled = false; }, 2500);
+    return;
+  }
+
+  // The engine takes a while to reload the model and reconnect the camera —
+  // poll for it rather than guessing a fixed delay.
+  label.textContent = 'Reconnecting…';
+  const deadline = Date.now() + 45000;
+  const poll = setInterval(async () => {
+    try {
+      const res = await fetch('/api/cameras');
+      const cams = await res.json();
+      if (cams[0] && cams[0].online) {
+        clearInterval(poll);
+        label.textContent = 'Camera reconnected';
+        pollStats(); loadCameras();
+        setTimeout(() => { label.textContent = 'Restart engine'; btn.disabled = false; }, 2000);
+        return;
+      }
+    } catch (e) { /* keep polling */ }
+    if (Date.now() > deadline) {
+      clearInterval(poll);
+      label.textContent = 'Restarted — camera not reachable';
+      setTimeout(() => { label.textContent = 'Restart engine'; btn.disabled = false; }, 3000);
+    }
+  }, 2000);
+}
+
+// ---------- Theme toggle ----------
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('sentra-theme', next);
+}
+
+// ---------- Clock ----------
+function tick() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
+}
+setInterval(tick, 1000); tick();
+
+// ---------- Backend connectivity + stats ----------
+let backendUp = false;
+function setBackendBadge(up) {
+  backendUp = up;
+  const badge = document.getElementById('backend-badge');
+  if (up) {
+    badge.className = 'status-pill';
+    badge.innerHTML = '<span class="dot pulse"></span>Backend connected';
+  } else {
+    badge.className = 'status-pill bad';
+    badge.innerHTML = '<span class="dot"></span>Backend unreachable';
+  }
+}
+
+let registeredCount = 0;
+
+async function pollStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error('bad status');
+    const data = await res.json();
+    setBackendBadge(true);
+    document.getElementById('stat-cameras').textContent = `${data.cameras_online}/${data.cameras_total}`;
+    document.getElementById('stat-cameras-sub').textContent = data.cameras_online > 0 ? 'Engine streaming' : 'AI engine not running';
+    document.getElementById('stat-people').textContent = data.registered_individuals;
+    document.getElementById('stat-detections').textContent = data.detections_today;
+
+    const visitorsEl = document.getElementById('stat-visitors');
+    visitorsEl.textContent = data.visitors_on_premises;
+    // Overdue visitors are the one visitor state that needs attention.
+    visitorsEl.className = 'stat-value' + (data.visitors_overdue > 0 ? ' red' : '');
+    document.getElementById('stat-visitors-sub').textContent =
+      data.visitors_overdue > 0
+        ? `${data.visitors_overdue} past their approved time`
+        : data.visitors_pending > 0
+          ? `${data.visitors_pending} awaiting approval`
+          : 'Temporary passes';
+
+    const alertsEl = document.getElementById('stat-alerts');
+    alertsEl.textContent = data.alerts_today;
+    // Red only when something actually needs attention today.
+    alertsEl.className = 'stat-value' + (data.alerts_today > 0 ? ' red' : ' faint');
+    registeredCount = data.registered_individuals;
+    document.getElementById('sidebar-sub').textContent = `${data.registered_individuals} registered · ${data.cameras_online}/${data.cameras_total} camera online`;
+  } catch (e) {
+    setBackendBadge(false);
+    document.getElementById('sidebar-sub').textContent = 'Backend unreachable';
+  }
+}
+
+function statusPillHtml() {
+  return `<span class="tag-pill ok"><span class="dot"></span>Verified</span>`;
+}
+
+async function pollActivity() {
+  try {
+    const res = await fetch('/api/detections?limit=8');
+    if (!res.ok) throw new Error('bad status');
+    const rows = await res.json();
+    const tbody = document.getElementById('activity-feed');
+    document.getElementById('activity-live-tag').className = 'live-tag';
+    if (rows.length === 0) {
+      // No file paths in operator-facing copy — the person reading this runs a
+      // school gate, not the source tree.
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-hint">No detections logged yet. Start the AI engine to begin monitoring.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td class="mono">${r.timestamp}</td>
+        <td class="name">${r.person_name}</td>
+        <td>${r.camera_name}</td>
+        <td>${statusPillHtml()}</td>
+      </tr>`).join('');
+  } catch (e) {
+    document.getElementById('activity-live-tag').className = 'live-tag off';
+  }
+}
+
+pollStats();
+pollActivity();
+setInterval(pollStats, 5000);
+setInterval(pollActivity, 4000);
+
+// ---------- Smart alerts (fight detection) ----------
+// Rows come from the anomalies table, written by the AI engine itself.
+// Names are shown when the face was recognized; "Unknown" is kept as-is,
+// because an unidentified person in an altercation still matters.
+
+function alertPeopleHtml(people) {
+  if (!people || people.length === 0) return '<span class="muted">—</span>';
+  return people.map(name =>
+    name === 'Unknown'
+      ? '<span class="muted">Unknown</span>'
+      : `<b>${name}</b>`
+  ).join(' <span class="muted">vs</span> ');
+}
+
+async function pollAlerts() {
+  try {
+    const res = await fetch('/api/anomalies?limit=25');
+    if (!res.ok) throw new Error('bad status');
+    const rows = await res.json();
+    document.getElementById('alerts-live-tag').className = 'live-tag';
+
+    const tbody = document.getElementById('alerts-body');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-hint">No alerts. The engine is watching.</td></tr>';
+    } else {
+      tbody.innerHTML = rows.map(r => {
+        const overstay = r.type === 'visitor_overstay';
+        // A fight is a scored guess, an overstay is a clock. Showing "100%
+        // confidence" for the latter would be technically true and useless —
+        // how long they are overdue is the number that matters.
+        const detail = overstay
+          ? `${formatDuration(r.overstay_seconds)} over`
+          : `${Math.round(r.confidence * 100)}%`;
+        return `
+        <tr>
+          <td class="mono">${r.timestamp}</td>
+          <td><span class="tag-pill ${overstay ? 'pending' : 'off'}">${overstay ? 'visitor overstay' : esc(r.type)}</span></td>
+          <td>${alertPeopleHtml(r.persons_involved)}</td>
+          <td class="mono">${detail}</td>
+          <td>${esc(r.camera_name)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Badge the nav item so alerts are noticeable from any tab.
+    const badge = document.getElementById('nav-alert-count');
+    if (rows.length > 0) {
+      badge.textContent = rows.length;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('alerts-live-tag').className = 'live-tag off';
+  }
+}
+
+pollAlerts();
+setInterval(pollAlerts, 5000);
+
+// ---------- Real-time alert banner ----------
+// Shown over whatever tab the operator is on, because a fight in progress
+// shouldn't wait for them to navigate to the alerts page.
+function showAlertBanner(anomaly) {
+  const host = document.getElementById('alert-banner-host');
+  const overstay = anomaly.type === 'visitor_overstay';
+  const people = (anomaly.persons_involved || [])
+    .map(n => n === 'Unknown' ? 'Unknown person' : n).join(' and ');
+
+  const title = overstay ? 'Visitor pass expired' : 'Possible altercation detected';
+  const detail = overstay
+    ? `${esc(people)} · ${formatDuration(anomaly.overstay_seconds || 0)} past their approved time · ${esc(anomaly.timestamp || '')}`
+    : `${esc(people) || 'Unidentified people'} · ${Math.round((anomaly.confidence || 0) * 100)}% confidence · ${esc(anomaly.timestamp || '')}`;
+
+  const icon = overstay
+    ? '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+    : '<path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/>';
+
+  const banner = document.createElement('div');
+  banner.className = 'alert-banner';
+  banner.innerHTML = `
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">${icon}</svg>
+    </div>
+    <div class="alert-banner-text">
+      <b>${title}</b>
+      <span>${detail}</span>
+    </div>
+    <button aria-label="Dismiss">&times;</button>`;
+
+  banner.querySelector('button').onclick = () => banner.remove();
+  host.appendChild(banner);
+  setTimeout(() => banner.remove(), 15000);
+}
+
+// ---------- Person search ----------
+async function loadPeopleForSearch() {
+  try {
+    const res = await fetch('/api/people');
+    const data = await res.json();
+    const datalist = document.getElementById('people-datalist');
+    datalist.innerHTML = data.names.map(n => `<option value="${n}"></option>`).join('');
+    const hint = document.getElementById('search-hint');
+    hint.textContent = data.names.length
+      ? `Registered: ${data.names.join(', ')}`
+      : 'No people registered yet — add someone in the Register person tab.';
+  } catch (e) { /* backend offline; search will surface the error on submit */ }
+}
+loadPeopleForSearch();
+
+async function runSearch() {
+  const qRaw = document.getElementById('search-input').value.trim();
+  const container = document.getElementById('search-results');
+  if (!qRaw) return;
+  try {
+    const res = await fetch('/api/people/search?name=' + encodeURIComponent(qRaw));
+    const data = await res.json();
+    if (!data.match) {
+      container.innerHTML = `<div class="panel empty-hint">No registered individual matches "${qRaw}".</div>`;
+      return;
+    }
+    const initials = data.match.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    let lastKnownHtml;
+    if (data.last_seen) {
+      lastKnownHtml = `
+        <div class="panel dossier" style="margin-bottom:16px;">
+          <div class="dossier-avatar">${initials}</div>
+          <div>
+            <div class="dossier-tag">LAST KNOWN LOCATION</div>
+            <div class="dossier-name">${data.match}</div>
+            <div class="dossier-meta"><span>${data.last_seen.camera_name}</span><span>${data.last_seen.timestamp}</span></div>
+          </div>
+        </div>`;
+    } else {
+      lastKnownHtml = `
+        <div class="panel dossier" style="margin-bottom:16px;">
+          <div class="dossier-avatar">${initials}</div>
+          <div>
+            <div class="dossier-tag">REGISTERED — NO DETECTIONS YET</div>
+            <div class="dossier-name">${data.match}</div>
+          </div>
+        </div>`;
+    }
+    const timelineRows = data.history.length
+      ? data.history.map(h => `<tr><td class="mono">${h.timestamp}</td><td>${h.camera_name}</td></tr>`).join('')
+      : `<tr><td colspan="2" class="empty-hint">No detections recorded yet.</td></tr>`;
+    container.innerHTML = lastKnownHtml + `
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title">Detection timeline</div></div>
+        <table><thead><tr><th>Time</th><th>Camera</th></tr></thead><tbody>${timelineRows}</tbody></table>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="panel empty-hint">Could not reach backend.</div>`;
+  }
+}
+document.getElementById('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+
+// ---------- Live monitor (real WebSocket relay, multi-camera) ----------
+const feedView = document.getElementById('feed-view');
+const feedOffline = document.getElementById('feed-offline');
+const detectedList = document.getElementById('detected-list');
+const liveTag = document.getElementById('live-tag');
+const liveTagText = document.getElementById('live-tag-text');
+let feedImg = null;
+let boxLayer = null;
+
+// One WebSocket carries every camera's frames, tagged by camera_id, so the
+// viewer has to pick which one to actually display — everything below this
+// point exists to make that selection and keep it in sync with reality.
+let selectedCameraId = null;
+let camerasCache = [];
+let lastFrameAtByCam = {};
+
+function getSelectedCamera() {
+  return camerasCache.find(c => c.id === selectedCameraId) || null;
+}
+
+function updateLiveLabels() {
+  const cam = getSelectedCamera();
+  document.querySelectorAll('.live-cam-name').forEach(el => el.textContent = cam ? cam.name : 'Camera');
+}
+
+function renderCamTabs() {
+  document.getElementById('cam-tabs').innerHTML = camerasCache.map(c => `
+    <div class="cam-tab${c.id === selectedCameraId ? ' active' : ''}" onclick="selectCamera('${c.id}')">${c.name}</div>
+  `).join('');
+}
+
+function selectCamera(id) {
+  selectedCameraId = id;
+  updateLiveLabels();
+  renderCamTabs();
+  // Only force the offline state if this camera is actually stale — an
+  // already-live camera should keep showing its last frame instead of
+  // flashing to "offline" for the instant before its next frame arrives.
+  if (Date.now() - (lastFrameAtByCam[id] || 0) > 4000) showOffline();
+}
+
+function ensureFeedElements() {
+  if (!feedImg) {
+    feedImg = document.createElement('img');
+    feedImg.className = 'feed-frame';
+    feedView.appendChild(feedImg);
+  }
+  if (!boxLayer) {
+    boxLayer = document.createElement('div');
+    boxLayer.style.position = 'absolute';
+    boxLayer.style.inset = '0';
+    feedView.appendChild(boxLayer);
+  }
+}
+
+function showOffline() {
+  if (feedImg) feedImg.remove();
+  if (boxLayer) boxLayer.remove();
+  feedImg = null; boxLayer = null;
+  feedOffline.style.display = 'flex';
+  liveTag.className = 'live-tag off';
+  liveTagText.textContent = 'Waiting for engine…';
+  document.getElementById('feed-res').textContent = '–';
+  detectedList.innerHTML = '<div style="color:var(--text-faint); font-size:12.5px; padding:8px;">No faces in frame</div>';
+}
+
+function renderFrame(data) {
+  lastFrameAtByCam[data.camera_id] = Date.now();
+  if (data.camera_id !== selectedCameraId) return; // a frame for a camera we're not viewing right now
+
+  ensureFeedElements();
+  feedOffline.style.display = 'none';
+  liveTag.className = 'live-tag';
+  liveTag.style.color = '';
+  liveTagText.textContent = 'Streaming';
+  feedImg.src = 'data:image/jpeg;base64,' + data.frame;
+  document.getElementById('feed-res').textContent = `${data.frame_width}x${data.frame_height}`;
+
+  boxLayer.innerHTML = '';
+  const faces = data.faces || [];
+  faces.forEach(f => {
+    const [x1, y1, x2, y2] = f.box;
+    // An expired visitor gets the same red as an unrecognised face: both are
+    // "someone who should not be walking around unchallenged".
+    const flagged = f.name === 'Unknown' || f.kind === 'visitor_overdue';
+    const box = document.createElement('div');
+    box.className = 'bbox' + (flagged ? ' unknown' : '');
+    box.style.left = (x1 / data.frame_width * 100) + '%';
+    box.style.top = (y1 / data.frame_height * 100) + '%';
+    box.style.width = ((x2 - x1) / data.frame_width * 100) + '%';
+    box.style.height = ((y2 - y1) / data.frame_height * 100) + '%';
+    const suffix = f.kind === 'visitor' ? ' · Visitor'
+                 : f.kind === 'visitor_overdue' ? ' · PASS EXPIRED' : '';
+    box.innerHTML = `<div class="bbox-label">${esc(f.name)}${suffix}</div>`;
+    boxLayer.appendChild(box);
+  });
+
+  const cam = getSelectedCamera();
+  if (cam && !cam.ai_enabled) {
+    detectedList.innerHTML = '<div style="color:var(--text-faint); font-size:12.5px; padding:8px;">AI detection is off for this camera.</div>';
+  } else {
+    detectedList.innerHTML = faces.length ? faces.map(f => {
+      const known = f.name !== 'Unknown';
+      const flagged = !known || f.kind === 'visitor_overdue';
+      const detail = f.kind === 'visitor_overdue'
+        ? 'Visitor — pass expired'
+        : f.kind === 'visitor'
+          ? `Visitor · ${Math.round(f.score * 100)}% match`
+          : known ? `${Math.round(f.score * 100)}% match` : 'No match found';
+      return `<div class="detected-item">
+        <span class="ring ${flagged ? 'red' : 'blue'}"></span>
+        <div><div class="di-name">${esc(f.name)}</div><div class="di-conf">${detail}</div></div>
+      </div>`;
+    }).join('') : '<div style="color:var(--text-faint); font-size:12.5px; padding:8px;">No faces in frame</div>';
+  }
+}
+
+let liveSocket = null;
+function connectLiveSocket() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  liveSocket = new WebSocket(`${proto}://${location.host}/ws/live`);
+  liveSocket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      renderFrame(data);
+      // The engine sends each anomaly exactly once, so this fires on the
+      // real event rather than waiting up to 5s for the next poll. Not
+      // filtered by selected camera — a fight on a camera you aren't
+      // currently viewing still has to alert.
+      if (data.anomalies && data.anomalies.length > 0) {
+        data.anomalies.forEach(showAlertBanner);
+        pollAlerts();
+        pollStats();
+      }
+    } catch (e) { /* ignore malformed frame */ }
+  };
+  liveSocket.onclose = () => { setTimeout(connectLiveSocket, 2000); };
+  liveSocket.onerror = () => { liveSocket.close(); };
+}
+connectLiveSocket();
+showOffline();
+setInterval(() => {
+  if (!selectedCameraId) return;
+  if (Date.now() - (lastFrameAtByCam[selectedCameraId] || 0) > 4000) showOffline();
+}, 1500);
+
+// ---------- Cameras (list, Manage, Add, ONVIF discovery) ----------
+
+async function loadCameras() {
+  try {
+    const res = await fetch('/api/cameras');
+    const cams = await res.json();
+    camerasCache = cams;
+
+    // Default to the first camera, and fall back to it if the one we had
+    // selected was just deleted — never leave the viewer pointed at nothing.
+    if (!selectedCameraId || !cams.some(c => c.id === selectedCameraId)) {
+      selectedCameraId = cams.length ? cams[0].id : null;
+    }
+    renderCamTabs();
+    updateLiveLabels();
+    renderCamerasList();
+  } catch (e) {
+    document.getElementById('cameras-list').innerHTML = '<div class="empty-hint" style="padding:22px 24px;">Could not reach backend.</div>';
+  }
+}
+loadCameras();
+setInterval(loadCameras, 5000);
+
+function renderCamerasList() {
+  const el = document.getElementById('cameras-list');
+  if (!camerasCache.length) {
+    el.innerHTML = '<div class="empty-hint" style="padding:22px 24px;">No cameras configured.</div>';
+    return;
+  }
+  el.innerHTML = camerasCache.map(c => `
+    <div class="camera-row">
+      <div>
+        <div class="camera-row-name">${c.name}</div>
+        <div class="camera-row-meta">${c.location ? c.location + ' · ' : ''}${c.connection_method === 'onvif' ? 'IP + Password' : 'Manual RTSP'}</div>
+      </div>
+      <div class="camera-row-right">
+        <span class="tag-pill ${c.ai_enabled ? 'ok' : 'neutral'}">${c.ai_enabled ? 'AI on' : 'AI off'}</span>
+        <span class="tag-pill ${c.online ? 'ok' : 'off'}"><span class="dot"></span>${c.online ? 'Online' : 'Offline'}</span>
+        <button class="btn-secondary" style="padding:8px 15px; font-size:12.5px;" onclick="openManageCamera('${c.id}')">Manage</button>
+      </div>
+    </div>`).join('');
+}
+
+// -- Add/Manage modal --------------------------------------------------
+
+let cameraModalMode = 'add'; // 'add' | 'manage'
+let cameraModalId = null;
+let cameraModalMethod = 'onvif';
+let cameraModalDiscoveredUrl = '';
+
+function setCameraMethod(method) {
+  cameraModalMethod = method;
+  document.querySelectorAll('.method-tab').forEach(el => el.classList.toggle('active', el.dataset.method === method));
+  document.getElementById('cm-onvif-fields').style.display = method === 'onvif' ? 'block' : 'none';
+  document.getElementById('cm-manual-fields').style.display = method === 'manual' ? 'block' : 'none';
+}
+
+function resetCameraModalForm() {
+  document.getElementById('cm-name').value = '';
+  document.getElementById('cm-location').value = '';
+  document.getElementById('cm-description').value = '';
+  document.getElementById('cm-ai-enabled').checked = true;
+  document.getElementById('cm-ip').value = '';
+  document.getElementById('cm-port').value = '8000';
+  document.getElementById('cm-username').value = 'admin';
+  document.getElementById('cm-password').value = '';
+  document.getElementById('cm-password-hint').style.display = 'none';
+  document.getElementById('cm-rtsp-url').value = '';
+  document.getElementById('cm-form-msg').innerHTML = '';
+  document.getElementById('cm-discover-msg').innerHTML = '';
+  document.getElementById('cm-discover-results').style.display = 'none';
+  document.getElementById('cm-discover-results').innerHTML = '';
+  cameraModalDiscoveredUrl = '';
+  setCameraMethod('onvif');
+}
+
+function openAddCameraModal() {
+  cameraModalMode = 'add';
+  cameraModalId = null;
+  resetCameraModalForm();
+  document.getElementById('camera-modal-title').textContent = 'Add camera';
+  document.getElementById('camera-modal-subtitle').textContent = 'New cameras appear on Live Monitor once the AI engine is restarted.';
+  document.getElementById('cm-save-btn').textContent = 'Add camera';
+  document.getElementById('cm-delete-btn').style.display = 'none';
+  document.getElementById('camera-modal-overlay').style.display = 'flex';
+}
+
+function openManageCamera(id) {
+  const cam = camerasCache.find(c => c.id === id);
+  if (!cam) return;
+  cameraModalMode = 'manage';
+  cameraModalId = id;
+  resetCameraModalForm();
+  document.getElementById('camera-modal-title').textContent = cam.name;
+  document.getElementById('camera-modal-subtitle').textContent = 'Changes take effect the next time the AI engine restarts.';
+  document.getElementById('cm-save-btn').textContent = 'Save changes';
+  document.getElementById('cm-delete-btn').style.display = 'inline-block';
+
+  document.getElementById('cm-name').value = cam.name;
+  document.getElementById('cm-location').value = cam.location || '';
+  document.getElementById('cm-description').value = cam.description || '';
+  document.getElementById('cm-ai-enabled').checked = !!cam.ai_enabled;
+
+  setCameraMethod(cam.connection_method === 'onvif' ? 'onvif' : 'manual');
+  if (cam.connection_method === 'onvif' && cam.onvif) {
+    document.getElementById('cm-ip').value = cam.onvif.ip || '';
+    document.getElementById('cm-port').value = cam.onvif.port || 8000;
+    document.getElementById('cm-username').value = cam.onvif.username || 'admin';
+    if (cam.onvif.has_password) {
+      document.getElementById('cm-password-hint').style.display = 'block';
+    }
+  }
+  document.getElementById('cm-rtsp-url').value = cam.rtsp_url || '';
+  cameraModalDiscoveredUrl = cam.rtsp_url || '';
+
+  document.getElementById('camera-modal-overlay').style.display = 'flex';
+}
+
+function closeCameraModal() {
+  document.getElementById('camera-modal-overlay').style.display = 'none';
+}
+
+async function discoverCamera() {
+  const ip = document.getElementById('cm-ip').value.trim();
+  const port = parseInt(document.getElementById('cm-port').value.trim() || '8000', 10);
+  const username = document.getElementById('cm-username').value.trim() || 'admin';
+  const password = document.getElementById('cm-password').value;
+  const msg = document.getElementById('cm-discover-msg');
+  const results = document.getElementById('cm-discover-results');
+  const btn = document.getElementById('cm-discover-btn');
+  const hasSavedPassword = document.getElementById('cm-password-hint').style.display !== 'none';
+
+  if (!ip) { msg.innerHTML = '<div class="form-msg error">Enter the camera’s IP address first.</div>'; return; }
+  if (!password && !hasSavedPassword) {
+    msg.innerHTML = '<div class="form-msg error">Enter the camera’s password.</div>';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Discovering…';
+  msg.innerHTML = '';
+  results.style.display = 'none';
+  try {
+    const res = await fetch('/api/cameras/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, port, username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${data.detail || 'Could not discover the camera.'}</div>`;
+    } else {
+      cameraModalDiscoveredUrl = data.recommended_url;
+      msg.innerHTML = `<div class="form-msg success">Connected: ${data.device}</div>`;
+      results.style.display = 'block';
+      results.innerHTML = data.profiles.map(p => `
+        <div class="discover-profile${p.url === cameraModalDiscoveredUrl ? ' selected' : ''}" onclick="selectDiscoveredProfile(this, '${p.url.replace(/'/g, "\\'")}')">
+          <div>
+            <div class="discover-profile-name">${p.name}</div>
+            <div class="discover-profile-url">${p.url}</div>
+          </div>
+          <div class="discover-profile-res">${p.resolution}</div>
+        </div>`).join('');
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach the backend.</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Discover RTSP URL';
+}
+
+function selectDiscoveredProfile(el, url) {
+  cameraModalDiscoveredUrl = url;
+  document.querySelectorAll('.discover-profile').forEach(p => p.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function saveCameraModal() {
+  const name = document.getElementById('cm-name').value.trim();
+  const location = document.getElementById('cm-location').value.trim();
+  const description = document.getElementById('cm-description').value.trim();
+  const ai_enabled = document.getElementById('cm-ai-enabled').checked;
+  const msg = document.getElementById('cm-form-msg');
+  const btn = document.getElementById('cm-save-btn');
+
+  if (!name) { msg.innerHTML = '<div class="form-msg error">Camera name is required.</div>'; return; }
+
+  const payload = { name, location, description, ai_enabled, connection_method: cameraModalMethod };
+
+  if (cameraModalMethod === 'manual') {
+    const rtsp_url = document.getElementById('cm-rtsp-url').value.trim();
+    if (!rtsp_url) { msg.innerHTML = '<div class="form-msg error">Enter an RTSP URL.</div>'; return; }
+    payload.rtsp_url = rtsp_url;
+  } else {
+    if (!cameraModalDiscoveredUrl) {
+      msg.innerHTML = '<div class="form-msg error">Run discovery and pick a stream first.</div>';
+      return;
+    }
+    payload.rtsp_url = cameraModalDiscoveredUrl;
+    payload.onvif = {
+      ip: document.getElementById('cm-ip').value.trim(),
+      port: parseInt(document.getElementById('cm-port').value.trim() || '8000', 10),
+      username: document.getElementById('cm-username').value.trim() || 'admin',
+      password: document.getElementById('cm-password').value,
+    };
+  }
+
+  btn.disabled = true;
+  try {
+    const url = cameraModalMode === 'add' ? '/api/cameras' : `/api/cameras/${cameraModalId}`;
+    const method = cameraModalMode === 'add' ? 'POST' : 'PUT';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${data.detail || 'Could not save this camera.'}</div>`;
+    } else {
+      closeCameraModal();
+      loadCameras();
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach the backend.</div>';
+  }
+  btn.disabled = false;
+}
+
+async function deleteCameraModal() {
+  if (!cameraModalId) return;
+  const cam = camerasCache.find(c => c.id === cameraModalId);
+  if (!confirm(`Remove "${cam ? cam.name : 'this camera'}"? This cannot be undone.`)) return;
+  const msg = document.getElementById('cm-form-msg');
+  try {
+    const res = await fetch(`/api/cameras/${cameraModalId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${data.detail || 'Could not remove this camera.'}</div>`;
+    } else {
+      closeCameraModal();
+      loadCameras();
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach the backend.</div>';
+  }
+}
+
+// ================= Temporary Pass (visitors) =================
+// The gate workflow: name -> photo -> duration -> request approval, then a
+// management decision. Nothing here decides anything itself — every state
+// shown comes from the backend, and the approval buttons are refused by the
+// API for a guard even if they were somehow clicked.
+
+let visitorSubview = 'new';
+let visitorsCache = [];
+let overstayCache = [];
+let visitDurationMinutes = 60;
+let capturedPhotoBlob = null;
+let cameraStream = null;
+let watchedVisitId = null;   // the request this guard just submitted
+
+document.querySelectorAll('#visitor-subtabs .subtab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    visitorSubview = tab.dataset.sub;
+    document.querySelectorAll('#visitor-subtabs .subtab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#view-visitors .subview').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('sub-' + visitorSubview).classList.add('active');
+  });
+});
+
+// ---------- Time helpers ----------
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
+}
+
+function formatMinutes(minutes) {
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function clockOnly(timestamp) {
+  return timestamp ? timestamp.slice(11, 16) : '—';
+}
+
+// ---------- Webcam capture ----------
+// getUserMedia needs a secure context; localhost qualifies, so this works for
+// the on-site deployment without any certificate setup.
+async function startVisitorCamera() {
+  const btn = document.getElementById('vis-camera-btn');
+  const msg = document.getElementById('vis-photo-msg');
+  btn.disabled = true;
+  msg.innerHTML = '';
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 960 }, facingMode: 'user' },
+      audio: false,
+    });
+  } catch (e) {
+    // Named explicitly: "camera blocked" and "no camera attached" need
+    // different actions from the guard, and the upload path still works.
+    const reason = e && e.name === 'NotAllowedError'
+      ? 'Camera access was blocked. Allow it in the browser, or upload a photo instead.'
+      : 'No camera is available on this device. Upload a photo instead.';
+    msg.innerHTML = `<div class="form-msg error">${reason}</div>`;
+    btn.disabled = false;
+    return;
+  }
+
+  const video = document.getElementById('vis-video');
+  video.srcObject = cameraStream;
+  video.style.display = 'block';
+  document.getElementById('vis-placeholder').style.display = 'none';
+  document.getElementById('vis-preview').style.display = 'none';
+  btn.style.display = 'none';
+  btn.disabled = false;
+  document.getElementById('vis-capture-btn').style.display = 'block';
+  document.getElementById('vis-retake-btn').style.display = 'none';
+}
+
+function stopVisitorCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+  const video = document.getElementById('vis-video');
+  video.srcObject = null;
+  video.style.display = 'none';
+}
+
+function captureVisitorPhoto() {
+  const video = document.getElementById('vis-video');
+  if (!video.videoWidth) return;  // stream not ready yet
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+
+  const flash = document.getElementById('vis-flash');
+  flash.classList.remove('fire');
+  void flash.offsetWidth;  // restart the animation
+  flash.classList.add('fire');
+
+  canvas.toBlob(blob => {
+    capturedPhotoBlob = blob;
+    showCapturedPhoto(URL.createObjectURL(blob));
+    stopVisitorCamera();
+  }, 'image/jpeg', 0.92);
+}
+
+function showCapturedPhoto(url) {
+  const preview = document.getElementById('vis-preview');
+  preview.src = url;
+  preview.style.display = 'block';
+  document.getElementById('vis-placeholder').style.display = 'none';
+  document.getElementById('vis-capture-btn').style.display = 'none';
+  document.getElementById('vis-camera-btn').style.display = 'none';
+  document.getElementById('vis-retake-btn').style.display = 'block';
+  document.getElementById('vis-photo-msg').innerHTML = '';
+}
+
+function retakeVisitorPhoto() {
+  capturedPhotoBlob = null;
+  document.getElementById('vis-file').value = '';
+  document.getElementById('vis-preview').style.display = 'none';
+  document.getElementById('vis-preview').src = '';
+  document.getElementById('vis-placeholder').style.display = 'flex';
+  document.getElementById('vis-retake-btn').style.display = 'none';
+  document.getElementById('vis-camera-btn').style.display = 'block';
+  document.getElementById('vis-capture-btn').style.display = 'none';
+  stopVisitorCamera();
+}
+
+document.getElementById('vis-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  stopVisitorCamera();
+  capturedPhotoBlob = file;
+  showCapturedPhoto(URL.createObjectURL(file));
+});
+
+function setVisitDuration(minutes, el) {
+  visitDurationMinutes = minutes;
+  document.querySelectorAll('#vis-durations .duration-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ---------- Submitting a request ----------
+async function submitVisitRequest() {
+  const name = document.getElementById('vis-name').value.trim();
+  const msg = document.getElementById('vis-msg');
+  const btn = document.getElementById('vis-submit');
+
+  if (!name) { msg.innerHTML = '<div class="form-msg error">Enter the visitor’s name.</div>'; return; }
+  if (!capturedPhotoBlob) { msg.innerHTML = '<div class="form-msg error">Take or upload a photo of the visitor.</div>'; return; }
+
+  const form = new FormData();
+  form.append('name', name);
+  form.append('duration_minutes', visitDurationMinutes);
+  form.append('photo', capturedPhotoBlob, 'visitor.jpg');
+  form.append('host', document.getElementById('vis-host').value.trim());
+  form.append('purpose', document.getElementById('vis-purpose').value.trim());
+
+  btn.disabled = true;
+  msg.innerHTML = '<div class="form-msg">Checking the photo with InsightFace…</div>';
+
+  try {
+    const res = await fetch('/api/visitors', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${esc(data.detail || 'Could not submit this request.')}</div>`;
+    } else {
+      msg.innerHTML = '';
+      watchedVisitId = data.id;
+      renderVisitResult(data);
+      // Clear the form but keep the result panel — the guard is now waiting on
+      // a decision for the person still standing in front of them.
+      document.getElementById('vis-name').value = '';
+      document.getElementById('vis-host').value = '';
+      document.getElementById('vis-purpose').value = '';
+      retakeVisitorPhoto();
+      loadVisitors();
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach the backend.</div>';
+  }
+  btn.disabled = false;
+}
+
+function renderVisitResult(visitor) {
+  const el = document.getElementById('vis-result');
+  const photo = visitor.has_photo
+    ? `<img class="visitor-photo lg" src="/api/visitors/${visitor.id}/photo" alt="">`
+    : `<div class="visitor-photo lg missing">?</div>`;
+
+  if (visitor.state === 'pending') {
+    el.innerHTML = `
+      <div class="pass-result pending">
+        ${photo}
+        <div>
+          <div class="pass-result-title">${esc(visitor.name)}</div>
+          <div class="pass-result-sub">
+            <span class="spinner" style="vertical-align:-2px; margin-right:6px;"></span>
+            Waiting for the security management team to approve a
+            ${formatMinutes(visitor.duration_minutes)} visit.
+          </div>
+        </div>
+      </div>
+      <div class="role-note" style="margin-top:14px;">
+        The visitor is not recognised by any camera until this is approved.
+      </div>`;
+  } else if (visitor.status === 'rejected') {
+    el.innerHTML = `
+      <div class="pass-result rejected">
+        ${photo}
+        <div>
+          <div class="pass-result-title">Entry refused — ${esc(visitor.name)}</div>
+          <div class="pass-result-sub">
+            Declined by ${esc(visitor.decided_by)} at ${clockOnly(visitor.decided_at)}.
+            ${visitor.rejection_reason ? esc(visitor.rejection_reason) : ''}
+          </div>
+        </div>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="pass-result approved">
+        ${photo}
+        <div>
+          <div class="pass-result-title">Approved — ${esc(visitor.name)}</div>
+          <div class="pass-result-sub">
+            Approved by ${esc(visitor.decided_by)} at ${clockOnly(visitor.approved_at)}.<br>
+            <b>Access until ${clockOnly(visitor.expires_at)}</b> · recognised on camera from now on.
+          </div>
+        </div>
+      </div>
+      <div class="role-note" style="margin-top:14px;">
+        If they are still on the premises after ${clockOnly(visitor.expires_at)}, an
+        overstay alert is raised automatically.
+      </div>`;
+  }
+}
+
+// ---------- Loading + rendering the lists ----------
+function visitorPhotoHtml(visitor, extraClass = '') {
+  return visitor.has_photo
+    ? `<img class="visitor-photo ${extraClass}" src="/api/visitors/${visitor.id}/photo" alt="">`
+    : `<div class="visitor-photo missing ${extraClass}">${esc((visitor.name || '?')[0].toUpperCase())}</div>`;
+}
+
+function adminOnlyNote(text) {
+  return `<span class="muted" style="font-size:12.5px;">${text}</span>`;
+}
+
+function renderPendingList() {
+  const el = document.getElementById('pending-list');
+  const rows = visitorsCache.filter(v => v.state === 'pending');
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-hint">No requests waiting. Visitors signed in at the gate appear here.</div>';
+    return;
+  }
+  el.innerHTML = rows.map(v => `
+    <div class="visitor-card">
+      ${visitorPhotoHtml(v)}
+      <div class="visitor-main">
+        <div class="visitor-name">${esc(v.name)}</div>
+        <div class="visitor-meta">
+          Requested by ${esc(v.requested_by)} at ${clockOnly(v.requested_at)} ·
+          ${formatMinutes(v.duration_minutes)} visit
+          ${v.host ? ' · visiting ' + esc(v.host) : ''}
+          ${v.purpose ? ' · ' + esc(v.purpose) : ''}
+        </div>
+      </div>
+      <div class="visitor-actions">
+        ${isAdmin() ? `
+          <button class="btn-approve" onclick="approveVisitor('${v.id}')">Approve entry</button>
+          <button class="btn-danger" onclick="rejectVisitor('${v.id}')">Refuse</button>
+        ` : `<span class="tag-pill pending">Awaiting management</span>`}
+      </div>
+    </div>`).join('');
+}
+
+function renderOnsiteList() {
+  const el = document.getElementById('onsite-list');
+  const rows = visitorsCache.filter(v => v.state === 'on_premises');
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-hint">No visitors currently signed in.</div>';
+  } else {
+    el.innerHTML = rows.map(v => {
+      const left = v.seconds_remaining || 0;
+      return `
+        <div class="visitor-card">
+          ${visitorPhotoHtml(v)}
+          <div class="visitor-main">
+            <div class="visitor-name">${esc(v.name)}</div>
+            <div class="visitor-meta">
+              Entered ${clockOnly(v.approved_at)} · access until ${clockOnly(v.expires_at)}
+              ${v.host ? ' · visiting ' + esc(v.host) : ''}
+              ${v.purpose ? ' · ' + esc(v.purpose) : ''}
+            </div>
+          </div>
+          <div class="visitor-actions">
+            <span class="countdown ${left < 600 ? 'low' : ''}" data-expires="${v.expires_at}">
+              ${formatDuration(left)} left
+            </span>
+            ${isAdmin() ? `
+              <button class="btn-secondary" onclick="extendVisitor('${v.id}')">Extend</button>
+              <button class="btn-danger" onclick="revokeVisitor('${v.id}')">End visit</button>
+            ` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // Everything that is done with: expired, ended early, or refused. Kept
+  // visible because "who was here today" is the question this answers.
+  const finished = visitorsCache.filter(v => ['overdue', 'ended_early', 'rejected'].includes(v.state));
+  const finishedEl = document.getElementById('finished-list');
+  if (!finished.length) {
+    finishedEl.innerHTML = '<div class="empty-hint">No finished visits yet today.</div>';
+    return;
+  }
+  finishedEl.innerHTML = finished.map(v => {
+    const tag = v.state === 'rejected'
+      ? '<span class="tag-pill off">Refused</span>'
+      : v.state === 'ended_early'
+        ? '<span class="tag-pill neutral">Ended early</span>'
+        : '<span class="tag-pill warn">Pass expired</span>';
+    return `
+      <div class="visitor-card">
+        ${visitorPhotoHtml(v)}
+        <div class="visitor-main">
+          <div class="visitor-name">${esc(v.name)}</div>
+          <div class="visitor-meta">
+            ${v.state === 'rejected'
+              ? `Refused by ${esc(v.decided_by)} at ${clockOnly(v.decided_at)}`
+              : `Entered ${clockOnly(v.approved_at)} · pass ended ${clockOnly(v.expires_at)}${v.revoked_by ? ' by ' + esc(v.revoked_by) : ''}`}
+          </div>
+        </div>
+        <div class="visitor-actions">
+          ${tag}
+          ${isAdmin() && v.state !== 'rejected'
+            ? `<button class="btn-secondary" onclick="extendVisitor('${v.id}')">Re-issue</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderOverstayList() {
+  const el = document.getElementById('overstay-list');
+  if (!overstayCache.length) {
+    el.innerHTML = '<div class="empty-hint">No overstays. Every visitor has left within their approved time.</div>';
+    return;
+  }
+  el.innerHTML = overstayCache.map(a => `
+    <div class="visitor-card">
+      ${a.photo_file
+        ? `<img class="visitor-photo lg" src="/api/visitors/${a.visitor_id}/photo" alt="">`
+        : `<div class="visitor-photo lg missing">${esc((a.visitor_name || '?')[0].toUpperCase())}</div>`}
+      <div class="visitor-main">
+        <div class="visitor-name">${esc(a.visitor_name)}</div>
+        <div class="visitor-meta">
+          Entered <b>${clockOnly(a.approved_at)}</b> ·
+          approved until <b>${clockOnly(a.expires_at)}</b> ·
+          seen again <b>${clockOnly(a.detected_at)}</b> on ${esc(a.camera_name)}
+          ${a.host ? '<br>Visiting ' + esc(a.host) : ''}
+        </div>
+      </div>
+      <div class="visitor-actions">
+        <span class="tag-pill warn">${formatDuration(a.overstay_seconds)} over</span>
+        ${isAdmin() ? `<button class="btn-secondary" onclick="extendVisitor('${a.visitor_id}')">Extend pass</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function loadVisitors() {
+  try {
+    const [visRes, alertRes] = await Promise.all([
+      fetch('/api/visitors?limit=200'),
+      fetch('/api/visitors/alerts?limit=50'),
+    ]);
+    if (!visRes.ok || !alertRes.ok) throw new Error('bad status');
+    visitorsCache = await visRes.json();
+    overstayCache = await alertRes.json();
+
+    document.getElementById('pending-live-tag').className = 'live-tag';
+    document.getElementById('onsite-live-tag').className = 'live-tag';
+    document.getElementById('overstay-live-tag').className = 'live-tag';
+
+    const pendingCount = visitorsCache.filter(v => v.state === 'pending').length;
+    const onsiteCount = visitorsCache.filter(v => v.state === 'on_premises').length;
+
+    const pendingBadge = document.getElementById('sub-count-pending');
+    pendingBadge.textContent = pendingCount;
+    pendingBadge.className = 'subtab-count' + (pendingCount > 0 ? ' alert' : '');
+    document.getElementById('sub-count-onsite').textContent = onsiteCount;
+    const overstayBadge = document.getElementById('sub-count-overstay');
+    overstayBadge.textContent = overstayCache.length;
+    overstayBadge.className = 'subtab-count' + (overstayCache.length > 0 ? ' alert' : '');
+
+    // Nav badge: only what needs a decision, so it means "act on this".
+    const navBadge = document.getElementById('nav-visitor-count');
+    if (pendingCount > 0) {
+      navBadge.textContent = pendingCount;
+      navBadge.style.display = '';
+    } else {
+      navBadge.style.display = 'none';
+    }
+
+    renderPendingList();
+    renderOnsiteList();
+    renderOverstayList();
+
+    // Keep the guard's own submitted request live without them refreshing.
+    if (watchedVisitId) {
+      const watched = visitorsCache.find(v => v.id === watchedVisitId);
+      if (watched) renderVisitResult(watched);
+    }
+  } catch (e) {
+    ['pending-live-tag', 'onsite-live-tag', 'overstay-live-tag']
+      .forEach(id => { document.getElementById(id).className = 'live-tag off'; });
+  }
+}
+
+// ---------- Management actions (admin only; the API enforces it too) --------
+async function visitorAction(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? null : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'That action could not be completed.');
+    return false;
+  }
+  loadVisitors();
+  pollStats();
+  return true;
+}
+
+function approveVisitor(id) {
+  const visitor = visitorsCache.find(v => v.id === id);
+  if (!visitor) return;
+  if (!confirm(`Approve entry for ${visitor.name} for ${formatMinutes(visitor.duration_minutes)}?`)) return;
+  visitorAction(`/api/visitors/${id}/approve`);
+}
+
+function rejectVisitor(id) {
+  const reason = prompt('Refuse entry — reason (optional):');
+  if (reason === null) return;  // cancelled
+  visitorAction(`/api/visitors/${id}/reject`, { reason });
+}
+
+function extendVisitor(id) {
+  const answer = prompt('Extend this pass by how many minutes?', '30');
+  if (answer === null) return;
+  const minutes = parseInt(answer, 10);
+  if (!minutes || minutes < 5) { alert('Enter at least 5 minutes.'); return; }
+  visitorAction(`/api/visitors/${id}/extend`, { minutes });
+}
+
+function revokeVisitor(id) {
+  const visitor = visitorsCache.find(v => v.id === id);
+  if (!confirm(
+    `End ${visitor ? visitor.name : 'this'} visit now?\n\n` +
+    'They stay under watch — if a camera sees them after this, an overstay alert is raised.'
+  )) return;
+  visitorAction(`/api/visitors/${id}/revoke`);
+}
+
+// Countdowns tick locally between polls so "time left" never looks frozen.
+setInterval(() => {
+  document.querySelectorAll('.countdown[data-expires]').forEach(el => {
+    const expires = new Date(el.dataset.expires.replace(' ', 'T'));
+    const left = (expires - new Date()) / 1000;
+    el.textContent = formatDuration(left) + ' left';
+    el.classList.toggle('low', left < 600);
+  });
+}, 1000);
+
+// The role decides which buttons exist, so the first render waits for it —
+// otherwise an admin briefly sees the guard's read-only view. The update
+// controls are role-gated the same way, so they boot off the same promise.
+loadCurrentUser().then(() => {
+  loadVisitors();
+  loadVersion();
+  pollUpdateState().then(scheduleUpdatePoll);
+});
+setInterval(loadVisitors, 5000);
+
+// ---------- Register person ----------
+document.getElementById('reg-files').addEventListener('change', (e) => {
+  const names = Array.from(e.target.files).map(f => f.name);
+  document.getElementById('reg-file-list').textContent = names.join(', ');
+});
+
+async function loadPeopleList() {
+  const container = document.getElementById('people-list');
+  try {
+    const res = await fetch('/api/people');
+    const data = await res.json();
+    if (data.names.length === 0) {
+      container.innerHTML = '<div class="empty-hint">No one registered yet.</div>';
+      return;
+    }
+    container.innerHTML = data.names.map(n => `
+      <div class="people-row">
+        <span class="p-name">${n}</span>
+        <button class="btn-danger" onclick="removePerson('${n.replace(/'/g, "\\'")}')">Remove</button>
+      </div>`).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="empty-hint">Could not reach backend.</div>';
+  }
+}
+loadPeopleList();
+
+async function removePerson(name) {
+  if (!confirm(`Remove ${name} from the face database?`)) return;
+  await fetch('/api/people/' + encodeURIComponent(name), { method: 'DELETE' });
+  loadPeopleList();
+  loadPeopleForSearch();
+  pollStats();
+}
+
+async function submitRegistration() {
+  const nameInput = document.getElementById('reg-name');
+  const filesInput = document.getElementById('reg-files');
+  const msg = document.getElementById('reg-msg');
+  const submitBtn = document.getElementById('reg-submit');
+  const name = nameInput.value.trim();
+
+  if (!name) { msg.innerHTML = '<div class="form-msg error">Enter a name.</div>'; return; }
+  if (!filesInput.files.length) { msg.innerHTML = '<div class="form-msg error">Choose at least one photo.</div>'; return; }
+
+  const form = new FormData();
+  form.append('name', name);
+  Array.from(filesInput.files).forEach(f => form.append('images', f));
+
+  submitBtn.disabled = true;
+  msg.innerHTML = '<div class="form-msg">Processing photos with InsightFace — this can take a few seconds on first run…</div>';
+
+  try {
+    const res = await fetch('/api/people/register', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${data.detail || 'Registration failed.'}</div>`;
+    } else {
+      msg.innerHTML = `<div class="form-msg success">Registered "${data.name}" — ${data.processed} photo(s) embedded, ${data.skipped} skipped.</div>`;
+      nameInput.value = '';
+      filesInput.value = '';
+      document.getElementById('reg-file-list').textContent = '';
+      loadPeopleList();
+      loadPeopleForSearch();
+      pollStats();
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach backend.</div>';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

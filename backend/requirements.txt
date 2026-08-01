@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Required by Formal_Code/face_recognition.py and face_register.py, which the
+# backend imports directly (backend/people_store.py) for person registration.
+numpy
+opencv-python
+insightface
+onnxruntime
+scikit-image
+scipy
+websocket-client

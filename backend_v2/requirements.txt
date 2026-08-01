@@ -1,0 +1,47 @@
+# Sentra — full runtime dependency set.
+#
+# Versions are the ones verified working together in the `sharktank` conda env
+# on the development Mac. Pinned rather than left open because several of these
+# have caused real, hard-to-diagnose breakage before (see the numpy note).
+
+# --- Web backend ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+python-multipart==0.0.32
+
+# --- numpy: MUST stay below 2.x ---
+# insightface, scipy and scikit-image ship compiled extensions built against
+# the numpy 1.x C-API. With numpy 2.x installed they fail either at import or,
+# more insidiously, only on the first real inference call:
+#   ValueError: numpy.dtype size changed, may indicate binary incompatibility
+# numpy 2 also writes pickles referencing numpy._core, which numpy 1 cannot
+# load — that breaks Database/face_embeddings.pkl between register and detect.
+numpy==1.26.4
+
+# --- Face recognition ---
+opencv-python==4.11.0.86
+insightface==1.0.1
+onnxruntime==1.28.0
+scikit-image==0.26.0
+scipy==1.17.1
+websocket-client==1.9.0
+
+# --- Fight / anomaly detection ---
+# Without these the engine still starts and face recognition still works, but
+# fight detection silently switches itself off — a failure that is invisible
+# unless you read the engine log, so they are not optional.
+# `lap` is what ByteTrack uses for track association; without it ultralytics
+# tries to pip-install it on the first .track() call, which would need internet
+# at runtime on the client's machine.
+ultralytics==8.4.113
+lap==0.5.13
+
+# torch is ultralytics' backend and is by far the largest thing in the build.
+# On Windows, plain `pip install torch` pulls the CUDA build: ~2.5GB, and every
+# byte of it ends up in the installer for no benefit, because the engine runs
+# the pose model on CPU (see the CPUExecutionProvider used for InsightFace).
+# build_windows.bat installs these from PyTorch's cpu index, which is ~200MB.
+# If you install requirements by hand, use:
+#   pip install torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu
+torch==2.13.0
+torchvision==0.28.0

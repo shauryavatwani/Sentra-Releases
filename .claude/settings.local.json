@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unzip -l archive.zip)",
+      "Bash(sqlite3 Database/detections.db \".schema\")",
+      "Bash(sqlite3 Database/detections.db \"SELECT * FROM detections LIMIT 5;\" -header -column)",
+      "Bash(sqlite3 Database/detections.db \".tables\")",
+      "Bash(pkill -f \"python3 face_recognition.py\")",
+      "Bash(nohup python3 face_recognition.py)",
+      "Bash(echo \"restarted pid $!\")",
+      "Bash(curl -s -b /tmp/cookies.txt http://127.0.0.1:8000/api/cameras)",
+      "Bash(scutil --get LocalHostName)",
+      "Bash(lsof -i :8000 -sTCP:LISTEN)"
+    ]
+  }
+}
