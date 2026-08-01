@@ -20,6 +20,7 @@ one thing for the installer to ship and sign.
 from __future__ import annotations
 
 import argparse
+import io
 import multiprocessing
 import subprocess
 import sys
@@ -27,6 +28,32 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+
+
+def _fix_streams_for_windowed_build() -> None:
+    """Windows + PyInstaller windowed (console=False) sets stdout/stderr to
+    None, not a closed stream — there is no console to attach them to.
+
+    That is not the same as "nothing wants to print". Uvicorn's default
+    logging config builds a StreamHandler and calls ``stream.isatty()`` on it
+    while deciding whether to colourise output; ``None`` has no such method,
+    the call raises, and the crash happens before the dashboard has served a
+    single request — reads as "the installer is broken" when it is really
+    just a formatter deciding on colour codes.
+
+    A real io stream with a no-op write is the fix: everything that expects
+    to print to stdout/stderr keeps working, the bytes just go nowhere, which
+    is correct for a windowed app with nothing to show them on. Must run
+    before uvicorn (or anything else that touches these streams at import
+    time) is imported.
+    """
+    if sys.stdout is None:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+
+
+_fix_streams_for_windowed_build()
 
 APP_HOST = "0.0.0.0"
 APP_PORT = 8000
