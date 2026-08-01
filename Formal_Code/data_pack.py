@@ -23,6 +23,7 @@ builtins, and refuses anything else.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import io
 import json
@@ -94,11 +95,28 @@ def _safe_load_embeddings(raw: bytes) -> dict[str, np.ndarray]:
 # --- Export -----------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def _connect(db_path: Path):
+    """A connection that is committed *and closed* on the way out.
+
+    ``sqlite3.Connection`` is a context manager that only commits — it does
+    not close. Leaving the handle open is survivable on POSIX and fatal on
+    Windows, where an open handle blocks any attempt to replace or rewrite the
+    database file. Same trap as ``visitor_store._connect``.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _count_rows(db_path: Path) -> dict[str, int]:
     counts = {t: 0 for t in HISTORY_TABLES}
     if not db_path.is_file():
         return counts
-    with sqlite3.connect(db_path) as conn:
+    with _connect(db_path) as conn:
         for table in HISTORY_TABLES:
             try:
                 counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -191,6 +209,73 @@ def _safe_extract_tree(zf: zipfile.ZipFile, prefix: str, dest_root: Path) -> int
     return written
 
 
+def _copy_history(db_bytes: bytes, db_target: Path) -> dict[str, int]:
+    """Copy the pack's rows into the live database, table by table.
+
+    Deliberately **not** a file replace. Replacing detections.db would need
+    every handle on it closed, and this process is not the only one that opens
+    it — the camera engine reads and writes it continuously. On Windows an open
+    handle makes the replace fail outright (``PermissionError``), which is
+    exactly how this surfaced: an HTTP 500 and "unexpected token 'I'" in the
+    browser, because the error page is HTML and the caller expected JSON.
+
+    Copying rows needs only a normal write transaction, so it works no matter
+    who else has the file open. Columns are read from the source table rather
+    than hard-coded, so a schema that gains a column later still imports.
+    """
+    imported: dict[str, int] = {}
+
+    # The pack's database has to exist as a real file for sqlite to open it.
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        tmp.write(db_bytes)
+        source_path = Path(tmp.name)
+
+    # Guarantee the destination schema before copying. event_logger owns
+    # detections/anomalies and visitor_store owns visitors/visitor_alerts, and
+    # both create their tables as an import side effect. Relying on "something
+    # else will have imported these by now" is what made visitor rows import as
+    # a silent zero: the copy hit "no such table", swallowed it as a
+    # not-applicable table, and reported success having moved nothing.
+    try:
+        import event_logger  # noqa: F401  (imported for its table creation)
+        import visitor_store  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
+        with _connect(source_path) as src, _connect(db_target) as dst:
+            for table in HISTORY_TABLES:
+                try:
+                    columns = [row[1] for row in src.execute(f"PRAGMA table_info({table})")]
+                    if not columns:
+                        continue
+                    rows = src.execute(f"SELECT * FROM {table}").fetchall()
+                except sqlite3.Error:
+                    continue
+                if not rows:
+                    imported[table] = 0
+                    continue
+
+                placeholders = ",".join("?" * len(columns))
+                column_list = ",".join(f'"{c}"' for c in columns)
+                try:
+                    # OR IGNORE so a re-import cannot raise on a colliding id;
+                    # the empty-database guard above already makes that rare.
+                    dst.executemany(
+                        f'INSERT OR IGNORE INTO {table} ({column_list}) VALUES ({placeholders})',
+                        rows,
+                    )
+                    imported[table] = len(rows)
+                except sqlite3.Error:
+                    # A table the live schema does not have (an older build
+                    # importing a newer pack) is skipped, not fatal.
+                    imported[table] = 0
+    finally:
+        source_path.unlink(missing_ok=True)
+
+    return imported
+
+
 def import_pack(pack_bytes: bytes) -> dict:
     """Merge a data pack into the running install.
 
@@ -234,20 +319,14 @@ def import_pack(pack_bytes: bytes) -> dict:
 
         # --- History (only into an empty install) -------------------------
         history_imported = False
+        imported_counts: dict[str, int] = {}
         db_target = sentra_paths.DETECTIONS_DB
-        if DB_ARCNAME in zf.namelist():
-            if _local_is_empty(db_target):
-                # Write to a temp file first, then move into place, so a failed
-                # write never leaves a half-copied database.
-                with tempfile.NamedTemporaryFile(
-                    dir=db_target.parent, delete=False, suffix=".tmp"
-                ) as tmp:
-                    tmp.write(zf.read(DB_ARCNAME))
-                    tmp_path = Path(tmp.name)
-                tmp_path.replace(db_target)
-                history_imported = True
+        if DB_ARCNAME in zf.namelist() and _local_is_empty(db_target):
+            imported_counts = _copy_history(zf.read(DB_ARCNAME), db_target)
+            history_imported = True
 
-    counts = manifest.get("counts", {})
+    # Report what actually landed, not what the manifest claimed was packed.
+    counts = imported_counts or manifest.get("counts", {})
     return {
         "people_added": added,
         "people_updated": updated,

@@ -30,6 +30,7 @@ import signal
 import subprocess
 import sys
 import threading
+import traceback
 import time
 from pathlib import Path
 
@@ -515,6 +516,17 @@ async def import_data_pack(request: Request, file: UploadFile = File(...)):
         return data_pack.import_pack(raw)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        # An unhandled exception here returns FastAPI's plain-text 500, and the
+        # dashboard's `res.json()` then fails with "unexpected token 'I'" —
+        # which tells the user nothing at all about what went wrong. Anything
+        # unforeseen still ends up as readable JSON, with the real reason in
+        # the log for whoever has to fix it.
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"The data pack could not be imported: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 # --- Cameras --------------------------------------------------------------
