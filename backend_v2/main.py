@@ -725,7 +725,7 @@ def _stop_running_engine() -> None:
     """
     pid_file = sentra_paths.ENGINE_PID_FILE
     try:
-        pid = int(pid_file.read_text().strip())
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return  # never started, or already cleaned up
 
@@ -763,7 +763,7 @@ def restart_engine():
     else:
         kwargs["start_new_session"] = True
 
-    with open(sentra_paths.ENGINE_LOG_FILE, "a") as logf:
+    with open(sentra_paths.ENGINE_LOG_FILE, "a", encoding="utf-8", errors="replace") as logf:
         subprocess.Popen(
             argv, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT, **kwargs
         )

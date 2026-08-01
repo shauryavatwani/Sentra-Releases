@@ -197,7 +197,7 @@ def spawn_engine() -> None:
     env = dict(os.environ, PYTHONUNBUFFERED="1")
 
     try:
-        with open(sentra_paths.ENGINE_LOG_FILE, "a") as logf:
+        with open(sentra_paths.ENGINE_LOG_FILE, "a", encoding="utf-8", errors="replace") as logf:
             subprocess.Popen(
                 argv, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT, env=env, **kwargs
             )

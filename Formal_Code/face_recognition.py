@@ -371,7 +371,7 @@ def _write_pid_file() -> None:
     """
     try:
         sentra_paths.ensure_data_dirs()
-        sentra_paths.ENGINE_PID_FILE.write_text(str(os.getpid()))
+        sentra_paths.ENGINE_PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     except OSError as exc:
         # Not fatal: the engine still detects faces, only the in-app restart
         # button loses its handle on this process.

@@ -101,7 +101,7 @@ def _read_raw() -> dict:
     if not CONFIG_FILE.is_file():
         return {"version": 2, "cameras": []}
     try:
-        data = json.loads(CONFIG_FILE.read_text())
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"version": 2, "cameras": []}
 
@@ -131,7 +131,7 @@ def _read_raw() -> dict:
 def _write(cameras: list[dict]) -> None:
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     payload = {"version": 2, "cameras": cameras}
-    CONFIG_FILE.write_text(json.dumps(payload, indent=2))
+    CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     # Camera passwords live in here.
     try:
         os.chmod(CONFIG_FILE, 0o600)

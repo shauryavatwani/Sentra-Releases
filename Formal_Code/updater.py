@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -413,11 +414,26 @@ def start_background_check(delay: float = STARTUP_CHECK_DELAY_SECONDS) -> None:
     threading.Thread(target=_run, name="sentra-update-check", daemon=True).start()
 
 
+def _force_writable(func, path, _exc_info):
+    """rmtree error handler: clear the read-only bit and retry once.
+
+    Windows refuses to delete a read-only file and reports it as
+    PermissionError. Downloads are not normally read-only, but antivirus and
+    Controlled Folder Access both set that bit on quarantined executables —
+    which a freshly downloaded installer is a prime candidate to be.
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        pass
+
+
 def clear_staged() -> dict:
     """Discard anything downloaded — used when an operator declines an update."""
     try:
         if STAGING_DIR.is_dir():
-            shutil.rmtree(STAGING_DIR)
+            shutil.rmtree(STAGING_DIR, onerror=_force_writable)
     except OSError:
         pass
     _set(status="available" if _state.get("latest_version") else "idle",

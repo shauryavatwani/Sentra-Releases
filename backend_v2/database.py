@@ -6,6 +6,7 @@ creates the table on import. This module only queries it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import sys
@@ -35,10 +36,25 @@ DB_PATH = sentra_paths.DETECTIONS_DB
 VISITOR_OVERSTAY_TYPE = "visitor_overstay"
 
 
-def _connect() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect():
+    """A connection that is committed *and closed* on the way out.
+
+    Callers use ``with _connect() as conn``. Returning a bare Connection and
+    letting the ``with`` handle it would only commit — ``sqlite3.Connection``
+    does not close itself on ``__exit__``. CPython's refcounting happens to
+    close it when the local goes out of scope, so this never misbehaved, but
+    "correct because of when the garbage collector runs" is not a property to
+    rely on for a file lock: on Windows an open handle blocks anything that
+    needs to rewrite detections.db, and these reads run on a 4-second poll.
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # Every read below degrades to an empty result if the table is somehow missing,

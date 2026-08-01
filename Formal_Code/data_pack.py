@@ -30,6 +30,7 @@ import json
 import pickle
 import shutil
 import sqlite3
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -187,11 +188,40 @@ def _local_is_empty(db_path: Path) -> bool:
     return sum(_count_rows(db_path).values()) == 0
 
 
+# Characters Windows forbids in a filename, plus the device names it reserves
+# whatever the extension. A pack written on macOS can legally contain any of
+# these; opening one on Windows raises OSError, which would abort the whole
+# import over a single badly-named photo.
+_WINDOWS_FORBIDDEN_CHARS = set('<>:"|?*') | {chr(c) for c in range(32)}
+_WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
+    f"{prefix}{i}" for prefix in ("COM", "LPT") for i in range(1, 10)
+}
+
+
+def _is_writable_on_this_platform(relative: str) -> bool:
+    if sys.platform != "win32":
+        return True
+    for part in Path(relative).parts:
+        if set(part) & _WINDOWS_FORBIDDEN_CHARS:
+            return False
+        # Windows also strips trailing dots and spaces, so a name that ends in
+        # one resolves to something other than what the pack recorded.
+        if part != part.rstrip(" ."):
+            return False
+        if part.upper().split(".")[0] in _WINDOWS_RESERVED_NAMES:
+            return False
+    return True
+
+
 def _safe_extract_tree(zf: zipfile.ZipFile, prefix: str, dest_root: Path) -> int:
     """Extract every member under ``prefix`` into ``dest_root``.
 
     Guards against path traversal: a member that would resolve outside
     ``dest_root`` (``../`` in the stored name) is skipped, never written.
+
+    Also skips names this platform cannot represent, and treats a single file
+    that will not write as a skip rather than a failure — losing one photo is
+    a much better outcome than aborting an import of eight people's data.
     """
     dest_root = dest_root.resolve()
     written = 0
@@ -199,12 +229,17 @@ def _safe_extract_tree(zf: zipfile.ZipFile, prefix: str, dest_root: Path) -> int
         if not member.startswith(prefix) or member.endswith("/"):
             continue
         relative = member[len(prefix):]
+        if not relative or not _is_writable_on_this_platform(relative):
+            continue
         target = (dest_root / relative).resolve()
         if not str(target).startswith(str(dest_root)):
             continue  # path-traversal attempt — refuse silently
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(member) as src, open(target, "wb") as dst:
-            shutil.copyfileobj(src, dst)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        except OSError:
+            continue  # unwritable path, locked file, name too long
         written += 1
     return written
 
