@@ -4,6 +4,9 @@ dist/
 .venv-build/
 windows/output/
 windows/build_info.json
+macos/output/
+macos/build_info.json
+macos/Sentra.iconset/
 *.spec.bak
 
 # --- Python ---------------------------------------------------------------

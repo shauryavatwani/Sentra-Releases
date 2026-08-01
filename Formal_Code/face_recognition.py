@@ -306,32 +306,78 @@ class CameraRuntime:
             del self.latest_anomalies[:-ANOMALY_HISTORY_LENGTH]
 
 
+def _empty_database() -> tuple[list[str], np.ndarray]:
+    """No enrolled people — a valid state, not an error.
+
+    A freshly installed Sentra has nobody registered yet. Everything except
+    naming an enrolled face still works: the camera streams to Live Monitor,
+    fight detection runs, visitors on a Temporary Pass are recognised, and
+    unrecognised people are reported as Unknown. Treating this as fatal would
+    mean a new install starts with a dead engine and a Live Monitor that never
+    comes up, before the user has had any chance to register anyone.
+
+    The zero-row matrix keeps the shape contract (N, 512) so the matching code
+    needs no special case: a dot product against it yields no matches, which is
+    exactly the right answer.
+    """
+    return [], np.zeros((0, 512), dtype=np.float32)
+
+
 def load_database() -> tuple[list[str], np.ndarray]:
-    """Load and validate the locally generated face-embedding database."""
+    """Load and validate the locally generated face-embedding database.
+
+    Never fatal. A missing or unreadable database degrades to "nobody is
+    enrolled" and says so in the log, because the engine has plenty of work
+    left to do without it.
+    """
     if not DATABASE_FILE.is_file():
-        raise FileNotFoundError(
-            f"Embedding database not found: {DATABASE_FILE}\n"
-            "Run face_register.py first."
+        print(
+            "No enrolled people yet — the face database does not exist. "
+            "Cameras, fight detection and Temporary Pass all still run; "
+            "everyone will be reported as Unknown until someone is registered "
+            "in the dashboard (Register person), or a data pack is imported."
         )
+        return _empty_database()
 
-    # Only load database files created locally by face_register.py.
-    with DATABASE_FILE.open("rb") as database_handle:
-        raw_database = pickle.load(database_handle)
+    try:
+        with DATABASE_FILE.open("rb") as database_handle:
+            raw_database = pickle.load(database_handle)
+    except Exception as exc:  # noqa: BLE001 — a corrupt pickle must not be fatal
+        print(
+            f"Could not read the face database ({exc}). Continuing with nobody "
+            "enrolled; re-register or re-import to repair it."
+        )
+        return _empty_database()
 
-    if not isinstance(raw_database, dict) or not raw_database:
-        raise ValueError("The embedding database is empty or has an invalid format.")
+    if not isinstance(raw_database, dict):
+        print("The face database has an unexpected format; continuing with nobody enrolled.")
+        return _empty_database()
+    if not raw_database:
+        print("The face database is empty; everyone will be reported as Unknown.")
+        return _empty_database()
 
     names: list[str] = []
     embeddings: list[np.ndarray] = []
+    skipped: list[str] = []
     for name, embedding in raw_database.items():
-        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
-        if vector.shape != (512,):
-            raise ValueError(f"Invalid embedding for {name!r}; expected 512 values.")
-        norm = np.linalg.norm(vector)
-        if norm == 0:
-            raise ValueError(f"Invalid zero-length embedding for {name!r}.")
+        # One malformed row must not cost the other seven people their
+        # recognition — skip it and carry on, loudly.
+        try:
+            vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        except (TypeError, ValueError):
+            skipped.append(str(name))
+            continue
+        if vector.shape != (512,) or np.linalg.norm(vector) == 0:
+            skipped.append(str(name))
+            continue
         names.append(str(name))
-        embeddings.append(vector / norm)
+        embeddings.append(vector / np.linalg.norm(vector))
+
+    if skipped:
+        print(f"Skipped {len(skipped)} unusable embedding(s): {', '.join(skipped)}")
+    if not embeddings:
+        print("No usable embeddings in the face database; everyone will be Unknown.")
+        return _empty_database()
 
     return names, np.stack(embeddings)
 
@@ -354,6 +400,13 @@ def best_match(
     embedding: np.ndarray, names: list[str], known_embeddings: np.ndarray
 ) -> tuple[str, float]:
     """Return the best cosine-similarity match, or Unknown below threshold."""
+    # Nobody enrolled yet (a fresh install — see load_database). np.argmax
+    # raises on an empty sequence, so without this the engine would survive
+    # startup and then die the first time a face appeared, which reads as an
+    # intermittent fault rather than an empty database.
+    if len(names) == 0 or known_embeddings.shape[0] == 0:
+        return "Unknown", 0.0
+
     normalized_embedding = embedding / np.linalg.norm(embedding)
     scores = known_embeddings @ normalized_embedding
     best_index = int(np.argmax(scores))

@@ -217,18 +217,27 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Excluded to keep the installer down: these are pulled in transitively by
-    # torch/ultralytics but nothing in Sentra renders plots or trains models.
+    # Excluded to keep the installer down. This list is short on purpose.
+    #
+    # matplotlib, torch.testing and torch.distributions were all on it and all
+    # look like dead weight for an app that renders no plots and trains no
+    # models. ultralytics imports every one of them, so excluding them made the
+    # pose model fail to load — and because that failure degrades gracefully by
+    # design, the app still started and served the dashboard with fight
+    # detection silently off. Caught on the macOS build (testable locally); the
+    # identical exclusions were live here. Each was removed only after
+    # measuring sys.modules after an actual pose inference.
+    #
+    # Before adding anything here: run `Sentra.exe --selftest` on the built
+    # bundle. The CI workflow does this and fails on a non-zero exit, which is
+    # what stops this mistake shipping again.
     excludes=[
-        "matplotlib",
         "tkinter",
         "PyQt5",
         "PySide2",
         "notebook",
         "IPython",
         "pandas",
-        "torch.distributions",
-        "torch.testing",
     ],
     noarchive=False,
     optimize=0,

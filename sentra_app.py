@@ -310,6 +310,110 @@ def run_app(open_browser: bool = True) -> int:
     return 0
 
 
+def run_selftest() -> int:
+    """Prove the packaged bundle can actually do its job. Run by the build.
+
+    Every check here corresponds to something that fails *softly* at runtime:
+    the app starts, the dashboard loads, and one capability is quietly missing
+    with nothing but a line in a log to say so. Fight detection dropping out
+    because a torch submodule was excluded from the bundle is precisely that,
+    and it shipped once.
+
+    Turning those into a non-zero exit code means the build fails instead of
+    the customer's install.
+    """
+    # A windowed build has no stdout, so without this the whole report would go
+    # to the discarding stub and the build log would show an exit code with no
+    # explanation of which capability was missing.
+    _redirect_streams_to_log("selftest.log")
+
+    failures: list[str] = []
+
+    def check(label: str, fn) -> None:
+        try:
+            detail = fn()
+            print(f"  [ OK ] {label}{f' — {detail}' if detail else ''}")
+        except Exception as exc:  # noqa: BLE001 — reporting, not handling
+            print(f"  [FAIL] {label} — {type(exc).__name__}: {exc}")
+            failures.append(label)
+
+    print(f"Sentra self-test (frozen={getattr(sys, 'frozen', False)})")
+
+    def _pose_model():
+        # Actually load it. The engine wraps this in a try/except so a failure
+        # degrades to "fight detection off", which is right at runtime and
+        # exactly why it has to be checked deliberately here.
+        import anomaly_detection
+
+        detector = anomaly_detection.FightDetector(label="selftest")
+        model = detector.load_pose_model()
+        if model is None:
+            raise RuntimeError("load_pose_model() returned nothing")
+        return "YOLOv8 pose + ByteTrack ready"
+
+    def _insightface():
+        from insightface.app import FaceAnalysis
+
+        import sentra_paths as sp
+
+        root = sp.insightface_root()
+        if not (root / "models" / "buffalo_l").is_dir():
+            raise RuntimeError(f"model set missing under {root}")
+        return str(root)
+
+    def _websockets():
+        # uvicorn without the [standard] extra serves HTTP fine and 404s every
+        # WebSocket route, which kills Live Monitor and the alert banner while
+        # everything else looks healthy.
+        import websockets  # noqa: F401
+
+        return "uvicorn websocket support present"
+
+    def _onvif():
+        import sentra_paths as sp
+        from onvif import ONVIFCamera  # noqa: F401
+
+        wsdl = sp.onvif_wsdl_dir()
+        if getattr(sys, "frozen", False) and wsdl is None:
+            raise RuntimeError("bundled WSDL directory not found")
+        return str(wsdl) if wsdl else "using package default"
+
+    def _backend():
+        import main as backend_main
+
+        routes = [r.path for r in backend_main.app.routes]
+        for required in ("/api/stats", "/ws/live", "/api/data-pack/import"):
+            if required not in routes:
+                raise RuntimeError(f"route missing: {required}")
+        return f"{len(routes)} routes"
+
+    def _data_pack():
+        import data_pack  # noqa: F401
+
+        return "import/export available"
+
+    def _ssl():
+        import ssl
+
+        ssl.create_default_context()
+        return "update check can reach https"
+
+    check("InsightFace model set", _insightface)
+    check("Fight detection (pose model)", _pose_model)
+    check("WebSocket support", _websockets)
+    check("ONVIF discovery", _onvif)
+    check("Backend routes", _backend)
+    check("Data pack", _data_pack)
+    check("TLS", _ssl)
+
+    print()
+    if failures:
+        print(f"SELF-TEST FAILED: {len(failures)} check(s) — {', '.join(failures)}")
+        return 1
+    print("SELF-TEST PASSED")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="Sentra", add_help=True)
     parser.add_argument(
@@ -322,8 +426,15 @@ def main() -> int:
         action="store_true",
         help="start the server without opening a browser window",
     )
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="verify this build's capabilities and exit (used by the build scripts)",
+    )
     args = parser.parse_args()
 
+    if args.selftest:
+        return run_selftest()
     if args.engine:
         return run_engine()
     return run_app(open_browser=not args.no_browser)

@@ -1,0 +1,94 @@
+# Builds Sentra.app and a .dmg on a macOS runner.
+#
+# Unlike the Windows build, this one is also reproducible on the development
+# machine (`bash macos/build_macos.sh`), so CI here is about producing a clean
+# artifact from a known-good checkout rather than about access to the platform.
+#
+# The runner is arm64 (Apple Silicon). A build produced here will NOT run on an
+# Intel Mac — see the note on the build job below.
+
+name: Build macOS App
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macos-14 and later are Apple Silicon. The resulting .app is arm64-only:
+    # PyInstaller cannot produce a universal2 binary unless every wheel in the
+    # dependency set is itself universal2, and torch/onnxruntime are not. Any
+    # Mac from late 2020 onward is Apple Silicon; an Intel Mac needs a separate
+    # build on an intel runner (macos-13).
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+
+      # numpy is pinned <2 (InsightFace's compiled extensions are built against
+      # the numpy 1.x C-API). numpy 1.26.4 has no wheels for Python 3.13+.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore the InsightFace model cache
+        id: insightface-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.insightface
+          key: insightface-buffalo_l-macos-v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r backend_v2/requirements.txt
+          python -m pip install pyinstaller==6.11.1
+
+      - name: Download the InsightFace models
+        if: steps.insightface-cache.outputs.cache-hit != 'true'
+        run: |
+          python -c "from insightface.app import FaceAnalysis; a=FaceAnalysis(providers=['CPUExecutionProvider']); a.prepare(ctx_id=0, det_size=(320,320)); print('model set ready')"
+
+      - name: Verify the pose model is present
+        run: |
+          if [ ! -f "Formal_Code/yolov8n-pose.pt" ]; then
+            echo "::error::Formal_Code/yolov8n-pose.pt is missing. Fight detection would silently disable itself."
+            exit 1
+          fi
+          echo "pose model present"
+
+      # build_macos.sh does the whole job: PyInstaller, ad-hoc signing, the
+      # self-test inside the built bundle, and the dmg. It is the same script
+      # used on the development machine, so CI cannot drift from local builds.
+      - name: Build the app and disk image
+        env:
+          SENTRA_PYTHON: python
+        run: bash macos/build_macos.sh
+
+      - name: Read the version
+        id: version
+        run: |
+          V=$(python -c "import re,pathlib; print(re.search(r'^VERSION\s*=\s*\"([^\"]+)\"', pathlib.Path('Formal_Code/sentra_version.py').read_text(), re.M).group(1))")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "built version $V"
+
+      - name: Upload the disk image as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sentra-macOS-${{ steps.version.outputs.version }}
+          path: macos/output/Sentra-*.dmg
+          retention-days: 30
+
+      - name: Attach the disk image to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: macos/output/Sentra-*.dmg

@@ -99,6 +99,29 @@ jobs:
           }
           Write-Host "bundle: dist/Sentra/Sentra.exe"
 
+      - name: Self-test the built application
+        # Runs inside the bundle that was just built, so it tests what will
+        # actually ship rather than the CI environment. This exists because a
+        # bundle missing torch.testing started fine, served the dashboard, and
+        # had fight detection silently switched off — a build that looked
+        # completely successful. Caught on macOS, where the app is testable
+        # locally; the same exclusion was live in this spec.
+        #
+        # Start-Process -Wait because the exe is built windowed: a GUI process
+        # returns to the shell immediately, so a bare invocation would neither
+        # block nor surface its exit code. Its report goes to a log file for
+        # the same reason — a windowed build has no stdout to print to.
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath ".\dist\Sentra\Sentra.exe" `
+                                -ArgumentList "--selftest" -Wait -PassThru
+          $log = Join-Path $env:PROGRAMDATA "Sentra\.run_logs\selftest.log"
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "no self-test log produced" }
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "The built app failed its own self-test. Do NOT ship this build."
+            exit 1
+          }
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
