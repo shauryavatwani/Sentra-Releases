@@ -27,11 +27,16 @@ echo
 # 1.x vs 2.x); building under the wrong one produces a bundle whose pickles the
 # engine cannot read.
 PYBIN="${SENTRA_PYTHON:-/opt/anaconda3/envs/sharktank/bin/python3}"
-if [ ! -x "$PYBIN" ]; then
+# Resolve through PATH when given a bare command name. `-x` alone only works
+# for an absolute path: CI passes SENTRA_PYTHON=python, and `[ -x python ]`
+# asks whether a file named "python" exists in the current directory, which it
+# does not — so the script aborted before building anything.
+if ! command -v "$PYBIN" >/dev/null 2>&1; then
     echo "ERROR: interpreter not found: $PYBIN"
     echo "Set SENTRA_PYTHON to the Python that has Sentra's dependencies."
     exit 1
 fi
+PYBIN="$(command -v "$PYBIN")"
 echo "Interpreter: $PYBIN"
 "$PYBIN" -c "import sys; print('  ->', sys.version.split()[0], sys.platform)"
 ARCH="$(uname -m)"
