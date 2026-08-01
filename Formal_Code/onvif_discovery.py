@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 
+import sentra_paths
+
 DEFAULT_ONVIF_PORT = 8000
 DEFAULT_USERNAME = "admin"
 
@@ -95,8 +97,14 @@ def discover_rtsp_urls(
             "(pip install onvif-zeep). Use the manual RTSP option instead."
         ) from exc
 
+    # A frozen build has to be told where the bundled WSDLs landed; from source
+    # the library's own default is already right (see sentra_paths for why this
+    # is not something collect_data_files handles).
+    wsdl_dir = sentra_paths.onvif_wsdl_dir()
+    extra = {"wsdl_dir": str(wsdl_dir)} if wsdl_dir else {}
+
     try:
-        camera = ONVIFCamera(ip, int(port), username, password)
+        camera = ONVIFCamera(ip, int(port), username, password, **extra)
         info = camera.devicemgmt.GetDeviceInformation()
         device = f"{info.Manufacturer} {info.Model}".strip()
     except Exception as exc:

@@ -138,6 +138,25 @@ def insightface_root() -> Path:
     return Path.home() / ".insightface"
 
 
+def onvif_wsdl_dir() -> Path | None:
+    """Directory holding the ONVIF WSDL files, or None to accept the default.
+
+    ``onvif-zeep`` defaults this to ``<site-packages>/wsdl`` — a top-level
+    directory *beside* the package rather than inside it. PyInstaller collects
+    package data, not that, so a frozen build has to be told where the copy
+    the spec bundled actually landed. Getting this wrong does not fail at
+    import; it fails at the moment someone tries to discover a camera, with a
+    file-not-found from deep inside zeep.
+
+    Returns None when running from source, where the library's own default is
+    already correct.
+    """
+    if not _is_frozen():
+        return None
+    bundled = RESOURCE_ROOT / "wsdl"
+    return bundled if bundled.is_dir() else None
+
+
 def app_dir() -> Path:
     """Folder holding the backend's static files (dashboard.html, login.html)."""
     return _first_existing(

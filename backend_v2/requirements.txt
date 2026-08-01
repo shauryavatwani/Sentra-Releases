@@ -26,6 +26,17 @@ scikit-image==0.26.0
 scipy==1.17.1
 websocket-client==1.9.0
 
+# --- ONVIF camera discovery ---
+# Powers the "find my camera" flow in the Cameras tab. Imported lazily, so a
+# missing install degrades to "use the manual RTSP option" rather than
+# breaking startup — but the feature is advertised in the UI, so it ships.
+# Note for packaging: this distribution puts its WSDL files in a TOP-LEVEL
+# `wsdl/` directory beside the package, not inside it, so PyInstaller's
+# collect_data_files("onvif") does not see them. windows/sentra.spec bundles
+# that directory explicitly and sentra_paths.onvif_wsdl_dir() finds it again
+# at runtime.
+onvif-zeep==0.2.12
+
 # --- Fight / anomaly detection ---
 # Without these the engine still starts and face recognition still works, but
 # fight detection silently switches itself off — a failure that is invisible

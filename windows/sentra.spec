@@ -113,6 +113,37 @@ datas = [
 # model fails to build its head. Same story for the insightface package data.
 datas += collect_data_files("ultralytics")
 datas += collect_data_files("insightface")
+# zeep (the SOAP stack under onvif-zeep) reads its own XSDs at runtime.
+datas += collect_data_files("zeep")
+datas += collect_data_files("onvif")  # onvif/version.txt
+
+# onvif-zeep keeps its WSDL files in a TOP-LEVEL `wsdl/` directory beside the
+# package rather than inside it, so collect_data_files("onvif") above does not
+# see them. Without this, ONVIF camera discovery fails only at the moment
+# someone tries to use it, with a file-not-found from deep inside zeep.
+# sentra_paths.onvif_wsdl_dir() is the other half: it points the library here.
+try:
+    import onvif as _onvif
+
+    _WSDL_DIR = Path(_onvif.__file__).resolve().parent.parent / "wsdl"
+    if _WSDL_DIR.is_dir():
+        datas.append((str(_WSDL_DIR), "wsdl"))
+        print(f"[sentra.spec] bundling ONVIF WSDLs from {_WSDL_DIR}")
+    else:
+        raise SystemExit(
+            f"\nERROR: onvif-zeep is installed but its WSDL directory is not at:\n"
+            f"    {_WSDL_DIR}\n\n"
+            "ONVIF camera discovery would fail at runtime with a file-not-found\n"
+            "from inside zeep. Locate the 'wsdl' directory in site-packages and\n"
+            "point this at it.\n"
+        )
+except ImportError:
+    raise SystemExit(
+        "\nERROR: onvif-zeep is not installed in the build environment.\n\n"
+        "ONVIF camera discovery is offered in the Cameras tab, so a build\n"
+        "without it ships a feature that cannot work.\n"
+        "    pip install -r backend_v2/requirements.txt\n"
+    )
 
 # --- Hidden imports -------------------------------------------------------
 # The app modules are imported through sys.path manipulation at runtime rather
@@ -166,6 +197,10 @@ hiddenimports = [
 hiddenimports += collect_submodules("insightface")
 hiddenimports += collect_submodules("ultralytics")
 hiddenimports += collect_submodules("skimage")
+# zeep resolves SOAP transports and XML plugins by name at runtime, and onvif
+# is imported lazily inside a function so static analysis never sees it.
+hiddenimports += collect_submodules("zeep")
+hiddenimports += ["onvif", "onvif.client", "onvif.exceptions"]
 
 # --- Analysis -------------------------------------------------------------
 

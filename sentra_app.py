@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import io
 import multiprocessing
+import os
 import subprocess
 import sys
 import threading
@@ -30,27 +31,53 @@ import webbrowser
 from pathlib import Path
 
 
+class _NullWriter(io.TextIOBase):
+    """A writable stream that discards, but answers every question asked of it.
+
+    Deliberately not ``io.TextIOWrapper(io.BytesIO())``: that keeps every byte
+    ever written, and this process is a server that logs a line per request and
+    runs for weeks. It would be an invisible memory leak.
+
+    ``isatty`` is the method whose absence caused the original crash, but any
+    of ``fileno``/``flush``/``write`` can be probed by a logging handler, so
+    all of them answer rather than raising.
+    """
+
+    def write(self, text):  # noqa: D102
+        return len(text)
+
+    def flush(self):  # noqa: D102
+        return None
+
+    def isatty(self):  # noqa: D102
+        return False
+
+    def writable(self):  # noqa: D102
+        return True
+
+
 def _fix_streams_for_windowed_build() -> None:
     """Windows + PyInstaller windowed (console=False) sets stdout/stderr to
     None, not a closed stream — there is no console to attach them to.
 
-    That is not the same as "nothing wants to print". Uvicorn's default
-    logging config builds a StreamHandler and calls ``stream.isatty()`` on it
-    while deciding whether to colourise output; ``None`` has no such method,
-    the call raises, and the crash happens before the dashboard has served a
-    single request — reads as "the installer is broken" when it is really
-    just a formatter deciding on colour codes.
+    That is not the same as "nothing wants to print". Uvicorn's default logging
+    config builds a StreamHandler and calls ``stream.isatty()`` while deciding
+    whether to colourise output; ``None`` has no such method, so the process
+    dies with "Unable to configure formatter 'default'" before serving a single
+    request — which reads as a broken installer rather than as a formatter
+    picking colour codes.
 
-    A real io stream with a no-op write is the fix: everything that expects
-    to print to stdout/stderr keeps working, the bytes just go nowhere, which
-    is correct for a windowed app with nothing to show them on. Must run
-    before uvicorn (or anything else that touches these streams at import
-    time) is imported.
+    This is the earliest possible safety net. :func:`_redirect_streams_to_log`
+    replaces it with a real file once the data directory is known, so the output
+    is actually diagnosable; this only has to survive until then.
+
+    A stream handed over by a parent process (the engine, whose stdout the
+    launcher redirects into a log file) is left alone — it is already valid.
     """
     if sys.stdout is None:
-        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        sys.stdout = _NullWriter()
     if sys.stderr is None:
-        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        sys.stderr = _NullWriter()
 
 
 _fix_streams_for_windowed_build()
@@ -77,6 +104,45 @@ _bootstrap_import_path()
 
 import sentra_paths  # noqa: E402  (import path must be set up first)
 
+# A windowed build has nowhere to show output, so without this every traceback
+# the app produces is lost — including the ones that explain why it will not
+# start. 5MB is roughly a week of ordinary request logging.
+MAX_LOG_BYTES = 5 * 1024 * 1024
+
+
+def _redirect_streams_to_log(log_name: str) -> None:
+    """Point discarded output at a real file, now that DATA_ROOT is known.
+
+    Only replaces streams that :func:`_fix_streams_for_windowed_build` stubbed
+    out. A console build keeps its console; the engine keeps the log handle its
+    parent gave it.
+
+    Failure here is deliberately swallowed: not being able to open a log file
+    (a locked file, a full disk) is not a reason to refuse to run the security
+    system. The stub stays in place and the app carries on silently.
+    """
+    if not isinstance(sys.stdout, _NullWriter) and not isinstance(sys.stderr, _NullWriter):
+        return
+    try:
+        sentra_paths.ensure_data_dirs()
+        path = sentra_paths.RUN_LOGS_DIR / log_name
+        # Truncate rather than rotate: this is a diagnostic tail, not an audit
+        # trail, and an unbounded log on a machine nobody administers is its
+        # own bug.
+        if path.exists() and path.stat().st_size > MAX_LOG_BYTES:
+            path.unlink()
+        # line_buffering so a crash still leaves the lines that led up to it —
+        # a block-buffered log loses exactly the part you need.
+        handle = open(path, "a", encoding="utf-8", errors="replace", buffering=1)
+    except OSError:
+        return
+
+    if isinstance(sys.stdout, _NullWriter):
+        sys.stdout = handle
+    if isinstance(sys.stderr, _NullWriter):
+        sys.stderr = handle
+    print(f"\n--- Sentra started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
+
 
 # --------------------------------------------------------------------------
 # Engine role
@@ -84,6 +150,9 @@ import sentra_paths  # noqa: E402  (import path must be set up first)
 
 
 def run_engine() -> int:
+    # Only bites if the engine was started without the launcher's redirect;
+    # normally its parent has already handed it a log file.
+    _redirect_streams_to_log("face_recognition.log")
     import face_recognition
 
     return face_recognition.main()
@@ -119,10 +188,18 @@ def spawn_engine() -> None:
     else:
         kwargs["start_new_session"] = True
 
+    # Python block-buffers stdout when it is a file rather than a terminal, so
+    # a perfectly healthy engine writes nothing to its log for minutes at a
+    # time and only flushes when it crashes — which has cost real debugging
+    # time on this project before. From source the fix is `python3 -u`; a
+    # frozen build has no command line to put that on, so it goes in the
+    # environment, which Python honours either way.
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+
     try:
         with open(sentra_paths.ENGINE_LOG_FILE, "a") as logf:
             subprocess.Popen(
-                argv, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT, **kwargs
+                argv, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT, env=env, **kwargs
             )
     except OSError as exc:
         print(f"Warning: could not start the camera engine: {exc}")
@@ -149,7 +226,76 @@ def _open_browser_when_ready() -> None:
     webbrowser.open(DASHBOARD_URL)
 
 
+def _tell_user(message: str, title: str = "Sentra") -> None:
+    """Say something to a user who has no console to read it in.
+
+    A windowed build's ``print`` goes to a log file nobody opens. When the
+    reason the app is not starting is something the user can act on, it has to
+    be on screen. Falls back to printing where there is no message box.
+    """
+    print(message)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            MB_OK, MB_ICONINFORMATION = 0x0, 0x40
+            ctypes.windll.user32.MessageBoxW(
+                None, message, title, MB_OK | MB_ICONINFORMATION
+            )
+        except Exception:  # noqa: BLE001 — never let a dialog failure escalate
+            pass
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.6)
+        # Connecting rather than binding: binding to 0.0.0.0 can succeed on
+        # Windows even when another process holds the same port on a specific
+        # interface, which would let this check pass and uvicorn still fail.
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _sentra_already_running() -> bool:
+    """True when the thing holding our port is a Sentra that is already up."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        urllib.request.urlopen(f"{DASHBOARD_URL}/login", timeout=2)
+        return True
+    except urllib.error.HTTPError:
+        return True  # answering at all means a server is there
+    except OSError:
+        return False
+
+
 def run_app(open_browser: bool = True) -> int:
+    # Before uvicorn is imported: its logging config inspects these streams at
+    # configuration time, and this is what makes a startup failure readable
+    # afterwards instead of vanishing.
+    _redirect_streams_to_log("sentra.log")
+
+    # Double-clicking the icon twice is the single most likely way a user meets
+    # this: uvicorn would abort with "address already in use" and, having no
+    # console, the second copy would appear to do nothing at all. Opening the
+    # dashboard that is already running is what the user actually wanted.
+    if _port_in_use(APP_HOST, APP_PORT):
+        if _sentra_already_running():
+            print("Sentra is already running; opening the existing dashboard.")
+            if open_browser:
+                webbrowser.open(DASHBOARD_URL)
+            return 0
+        _tell_user(
+            f"Sentra could not start because another program is already using "
+            f"port {APP_PORT} on this PC.\n\n"
+            f"Close that program and start Sentra again. If you are not sure "
+            f"what it is, restarting the PC will clear it.",
+            "Sentra — port in use",
+        )
+        return 1
+
     import uvicorn
 
     sentra_paths.ensure_data_dirs()

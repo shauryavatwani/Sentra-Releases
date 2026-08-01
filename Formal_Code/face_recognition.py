@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import pickle
+import sys
 import threading
 import time
 from datetime import datetime
@@ -54,6 +55,35 @@ DASHBOARD_WS_URLS = [
 STREAM_INTERVAL_SECONDS = 0.15  # ~6.6fps target; 0.1 was jittery (CPU-bound), 0.3 felt laggy
 STREAM_MAX_WIDTH = 720  # smaller frames offset the higher send rate
 STREAM_JPEG_QUALITY = 60
+
+# --- Local preview windows --------------------------------------------------
+# Running from source, cv2.imshow windows are a genuinely useful development
+# view. In an installed build they are wrong in three separate ways:
+#
+#   * The dashboard's Live Monitor is the product's UI. The engine is a
+#     background service started by the launcher; desktop windows appearing
+#     from a process the user never launched read as a malfunction.
+#   * The engine is spawned DETACHED_PROCESS with no console, so there is no
+#     obvious way to close those windows, and the "press Q to quit" instruction
+#     printed alongside them goes to a log file nobody is reading.
+#   * highgui is the one part of OpenCV that can fail purely on environment
+#     (no window station, a headless build). A raise there would take down face
+#     recognition, which has nothing to do with drawing a preview.
+#
+# So: preview from source, headless once frozen. SENTRA_PREVIEW forces it
+# either way ("1" on, "0" off) for debugging an installed build.
+def _preview_enabled() -> bool:
+    override = os.environ.get("SENTRA_PREVIEW")
+    if override is not None:
+        return override.strip() not in ("", "0", "false", "no")
+    return not getattr(sys, "frozen", False)
+
+
+SHOW_PREVIEW = _preview_enabled()
+# cv2.waitKey is what paces the display loop; with no window to wait on, the
+# loop would spin as fast as the stream can hand back frames and burn a core
+# for nothing. Headless runs sleep for the equivalent interval instead.
+HEADLESS_LOOP_SLEEP = 0.05
 
 # Fight/anomaly detection (Formal_Code/anomaly_detection.py).
 # The pose model is the most expensive thing in this script after InsightFace,
@@ -783,13 +813,23 @@ def main() -> int:
             streamer.start()
             workers.append(streamer)
 
-    print(
-        f"Running with {len(online_cameras)}/{len(cameras)} camera(s) online. "
-        "Press Q in any preview window to quit."
-    )
+    if SHOW_PREVIEW:
+        print(
+            f"Running with {len(online_cameras)}/{len(cameras)} camera(s) online. "
+            "Press Q in any preview window to quit."
+        )
+    else:
+        print(
+            f"Running with {len(online_cameras)}/{len(cameras)} camera(s) online. "
+            "Preview windows are off; watch the Live Monitor tab in the dashboard."
+        )
 
     displayed_frames = 0
     fps_started_at = time.perf_counter()
+    # Set once, if highgui turns out to be unusable at runtime. Recognition and
+    # the dashboard stream do not depend on it, so a preview failure downgrades
+    # to headless rather than stopping the engine.
+    preview_ok = SHOW_PREVIEW
 
     try:
         while True:
@@ -799,8 +839,16 @@ def main() -> int:
                 if frame is None:
                     continue
                 any_frame = True
-                _draw_overlay(frame, cam, running)
-                cv2.imshow(f"Sentra — {cam.name}", frame)
+                # Overlay drawing is for the preview only — the dashboard gets
+                # raw frames plus box coordinates and draws its own. Skipping it
+                # headless saves the work rather than doing it for nobody.
+                if preview_ok:
+                    _draw_overlay(frame, cam, running)
+                    try:
+                        cv2.imshow(f"Sentra — {cam.name}", frame)
+                    except cv2.error as exc:
+                        print(f"Preview windows unavailable, continuing headless: {exc}")
+                        preview_ok = False
 
             if any_frame:
                 displayed_frames += 1
@@ -810,8 +858,15 @@ def main() -> int:
                 if displayed_frames % 150 == 0 and elapsed:
                     print(f"Display FPS (avg, all cameras combined): {displayed_frames / elapsed:.1f}")
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            if preview_ok:
+                # Doubles as the loop's pacing: waitKey yields for ~1ms and
+                # pumps the highgui event queue.
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+            else:
+                # No window to pump, so nothing is yielding the CPU. Without
+                # this the loop spins at whatever rate stream.read() returns.
+                time.sleep(HEADLESS_LOOP_SLEEP)
     finally:
         running.clear()
         for worker in workers:
@@ -819,7 +874,11 @@ def main() -> int:
         for cam in cameras:
             if cam.stream is not None:
                 cam.stream.stop()
-        cv2.destroyAllWindows()
+        if SHOW_PREVIEW:
+            try:
+                cv2.destroyAllWindows()
+            except cv2.error:
+                pass
 
     return 0
 

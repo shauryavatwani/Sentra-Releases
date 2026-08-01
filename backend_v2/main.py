@@ -665,12 +665,51 @@ def _engine_command() -> tuple[list[str], str | None]:
     return [sys.executable, "-u", "face_recognition.py"], str(FORMAL_CODE_DIR)
 
 
+def _process_is_alive(pid: int) -> bool:
+    """Is this pid still running? Read-only on both platforms.
+
+    The obvious ``os.kill(pid, 0)`` is a harmless existence probe on POSIX and
+    a *destructive* call on Windows: CPython maps every signal except the two
+    console-control events onto ``TerminateProcess``, so signal 0 does not ask
+    whether the process is alive, it kills it with exit code 0. Against a
+    recycled pid — and Windows recycles pids briskly — that would terminate
+    whatever unrelated program now holds the number.
+
+    Windows therefore gets OpenProcess with the most limited access right that
+    can answer the question, and never a signal.
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False  # gone, or not ours to inspect
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _stop_running_engine() -> None:
     """Terminate the engine using the pid it recorded at startup.
 
     This used to shell out to `pkill`, which does not exist on Windows.
     os.kill with SIGTERM works on both platforms (on Windows it maps to
-    TerminateProcess).
+    TerminateProcess — a hard kill, so the engine's own cleanup does not run;
+    the OS releases the RTSP socket regardless, which is what matters here).
     """
     pid_file = sentra_paths.ENGINE_PID_FILE
     try:
@@ -689,9 +728,7 @@ def _stop_running_engine() -> None:
     # Give it a moment to exit before the replacement grabs the camera; two
     # processes holding the same RTSP stream is the failure this avoids.
     for _ in range(20):
-        try:
-            os.kill(pid, 0)  # signal 0 = "does this pid exist?"
-        except OSError:
+        if not _process_is_alive(pid):
             break
         time.sleep(0.1)
 
