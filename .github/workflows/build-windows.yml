@@ -103,7 +103,11 @@ jobs:
         run: choco install innosetup --no-progress -y
 
       - name: Build the installer
-        run: '& "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" windows\sentra.iss'
+        # $env:ProgramFiles(x86) is invalid PowerShell — "(x86)" after a bare
+        # $env: variable is parsed as an operator, not part of the name, which
+        # silently drops the space in "Program Files (x86)" and 404s the exe.
+        # ${env:...} braces the name so it is taken literally.
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\sentra.iss'
 
       - name: Generate the release manifest
         # Computes the real sha256 of the installer just built. The client
