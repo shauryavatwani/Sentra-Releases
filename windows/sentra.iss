@@ -85,12 +85,22 @@ Name: "startupicon"; Description: "Start {#AppName} automatically when Windows s
 Source: "..\dist\Sentra\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
-; --- Seed data: FRESH INSTALLS ONLY ---------------------------------------
-; This ships the complete working system as it stands today — the detection
-; history, the registered face embeddings and their source photos, the visitor
-; records and gate photos, and the camera configuration.
+; --- Seed data: FRESH INSTALLS ONLY, AND ONLY IF PRESENT ON THE BUILD MACHINE
+; When these files exist next to the build (a developer's own machine, seeding
+; their own organisation's installer), a fresh install ships the complete
+; working system — detection history, registered faces and their photos,
+; visitor records, camera configuration.
 ;
-; Every one of these carries BOTH guards on purpose:
+; When they don't exist — the public CI build on GitHub's runner, which checks
+; out a repo that deliberately does not contain anyone's face data — the
+; installer ships with nobody registered. That is the intended shape for the
+; public build: real rosters travel between machines as a data pack
+; (Formal_Code/data_pack.py, Settings -> Export in the app), never as files
+; baked into a public installer.
+;
+; Every one of these carries every guard on purpose:
+;   skipifsourcedoesntexist — the file may legitimately not exist on this
+;                             build machine; that's fine, ship without it
 ;   Check: IsFreshInstall   — an upgrade skips the whole block, so a build's
 ;                             seed data can never reappear over the top of the
 ;                             client's own work months later
@@ -98,16 +108,21 @@ Source: "..\dist\Sentra\*"; DestDir: "{app}"; \
 ;   uninsneveruninstall     — uninstalling leaves the client's records intact
 ;
 Source: "..\Database\detections.db"; DestDir: "{#DataDir}\Database"; \
-    Flags: onlyifdoesntexist uninsneveruninstall; Check: IsFreshInstall
+    Flags: onlyifdoesntexist uninsneveruninstall skipifsourcedoesntexist; \
+    Check: IsFreshInstall
 Source: "..\Database\face_embeddings.pkl"; DestDir: "{#DataDir}\Database"; \
-    Flags: onlyifdoesntexist uninsneveruninstall; Check: IsFreshInstall
+    Flags: onlyifdoesntexist uninsneveruninstall skipifsourcedoesntexist; \
+    Check: IsFreshInstall
 Source: "..\Database\camera_config.json"; DestDir: "{#DataDir}\Database"; \
-    Flags: onlyifdoesntexist uninsneveruninstall; Check: IsFreshInstall
+    Flags: onlyifdoesntexist uninsneveruninstall skipifsourcedoesntexist; \
+    Check: IsFreshInstall
 ; Enrolment photos. face_register.py re-embeds from this folder, so shipping it
 ; means the client can add a photo to an existing person rather than having to
-; re-register them from scratch.
+; re-register them from scratch. skipifsourcedoesntexist also covers the
+; wildcard-matches-nothing case (Faces\ absent entirely), not just a missing
+; single file.
 Source: "..\Faces\*"; DestDir: "{#DataDir}\Faces"; \
-    Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs; \
+    Flags: onlyifdoesntexist uninsneveruninstall recursesubdirs createallsubdirs skipifsourcedoesntexist; \
     Check: IsFreshInstall
 ; Gate photos backing the visitor rows already in detections.db. Without these
 ; the Temporary Pass tab would show visitor records with broken photos.
