@@ -1,0 +1,235 @@
+# Builds Sentra for both platforms and publishes them as ONE release.
+#
+# Why a single workflow with a separate publish job, rather than two workflows
+# that each attach their own files:
+#
+# Two independent workflows race. Whichever finishes first creates the release,
+# and GitHub immediately treats it as "latest" — including for
+# /releases/latest/download/version.json, which every installed copy of Sentra
+# polls. version.json is produced by the Windows job, so when the macOS job won
+# the race the newest release existed with no manifest in it and every client's
+# update check 404'd until Windows caught up. A ~15 minute window of "Update
+# check failed" on every machine, once per release.
+#
+# `needs: [windows, macos]` makes publishing atomic: nothing is released until
+# both installers and the manifest exist, so the feed goes straight from the
+# old version to the complete new one.
+#
+# Start it from the Actions tab to get test artifacts without releasing
+# anything, or push a tag (vX.Y.Z) to build and publish.
+
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # numpy is pinned <2 (InsightFace's compiled extensions are built against
+      # the numpy 1.x C-API). numpy 1.26.4 has no wheels for Python 3.13+, so
+      # this version is a hard requirement rather than a preference.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore the InsightFace model cache
+        id: insightface-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.insightface
+          key: insightface-buffalo_l-v1
+
+      - name: Install torch (CPU build)
+        # From PyTorch's CPU index deliberately: the default PyPI torch on
+        # Windows is the CUDA build, ~2.5GB of which would end up inside the
+        # installer for no benefit, since the pose model runs on CPU.
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install application dependencies
+        run: |
+          python -m pip install -r backend_v2/requirements.txt
+          python -m pip install pyinstaller==6.11.1
+
+      - name: Download the InsightFace models
+        if: steps.insightface-cache.outputs.cache-hit != 'true'
+        run: python -c "from insightface.app import FaceAnalysis; a=FaceAnalysis(providers=['CPUExecutionProvider']); a.prepare(ctx_id=0, det_size=(320,320)); print('model set ready')"
+
+      - name: Verify the pose model is present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "Formal_Code/yolov8n-pose.pt")) {
+            Write-Error "Formal_Code/yolov8n-pose.pt is missing. Fight detection would silently disable itself at runtime."
+            exit 1
+          }
+          Write-Host "pose model present"
+
+      - name: Build the application bundle
+        run: python -m PyInstaller windows/sentra.spec --noconfirm --clean
+
+      - name: Confirm the bundle was produced
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/Sentra/Sentra.exe")) {
+            Write-Error "dist/Sentra/Sentra.exe was not produced."
+            exit 1
+          }
+
+      - name: Self-test the built application
+        # Runs inside the bundle that will actually ship. This exists because a
+        # build missing torch.testing started fine, served the dashboard, and
+        # had fight detection silently switched off — a build that looked
+        # completely successful.
+        #
+        # Start-Process -Wait because the exe is windowed: a GUI process
+        # returns to the shell immediately, so a bare call would neither block
+        # nor surface its exit code. The report goes to a log file for the same
+        # reason — a windowed build has no stdout.
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath ".\dist\Sentra\Sentra.exe" `
+                                -ArgumentList "--selftest" -Wait -PassThru
+          $log = Join-Path $env:PROGRAMDATA "Sentra\.run_logs\selftest.log"
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "no self-test log produced" }
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "The built app failed its own self-test. Do NOT ship this build."
+            exit 1
+          }
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        # $env:ProgramFiles(x86) is invalid PowerShell — "(x86)" after a bare
+        # $env: variable parses as an operator, silently dropping the space in
+        # "Program Files (x86)". ${env:...} braces the name so it is literal.
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\sentra.iss'
+
+      - name: Generate the release manifest
+        # Computes the real sha256 of the installer just built. Clients refuse
+        # any download whose digest does not match, so this must never be
+        # hand-written.
+        run: python windows/make_release.py "https://github.com/${{ github.repository }}/releases/latest/download"
+
+      - name: Upload the Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            windows/output/SentraSetup.exe
+            windows/output/SentraSetup-*.exe
+            windows/output/version.json
+            windows/output/release_notes.md
+          retention-days: 30
+
+  macos:
+    # macos-14 and later are Apple Silicon. The .app is arm64-only: a
+    # universal2 build would need every wheel to be universal2, and
+    # torch/onnxruntime are not. An Intel Mac would need a macos-13 job.
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore the InsightFace model cache
+        id: insightface-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.insightface
+          key: insightface-buffalo_l-macos-v1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r backend_v2/requirements.txt
+          python -m pip install pyinstaller==6.11.1
+
+      - name: Download the InsightFace models
+        if: steps.insightface-cache.outputs.cache-hit != 'true'
+        run: python -c "from insightface.app import FaceAnalysis; a=FaceAnalysis(providers=['CPUExecutionProvider']); a.prepare(ctx_id=0, det_size=(320,320)); print('model set ready')"
+
+      - name: Verify the pose model is present
+        run: |
+          if [ ! -f "Formal_Code/yolov8n-pose.pt" ]; then
+            echo "::error::Formal_Code/yolov8n-pose.pt is missing. Fight detection would silently disable itself."
+            exit 1
+          fi
+
+      # build_macos.sh does the whole job — PyInstaller, ad-hoc signing (a
+      # broken signature is fatal on Apple Silicon, not just a warning), the
+      # self-test inside the built bundle, and the dmg. It is the same script
+      # used on the development machine, so CI cannot drift from local builds.
+      - name: Build the app and disk image
+        env:
+          SENTRA_PYTHON: python
+        run: bash macos/build_macos.sh
+
+      - name: Upload the macOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: macos/output/Sentra-*.dmg
+          retention-days: 30
+
+  publish:
+    # The whole point of this file: nothing is released until BOTH platforms
+    # have built and passed their self-tests. A partial release is worse than a
+    # late one, because the newest release is what every client polls.
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Read the version
+        id: version
+        run: |
+          V=$(python3 -c "import json;print(json.load(open('artifacts/windows-build/version.json'))['version'])")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "publishing Sentra $V"
+
+      - name: Confirm every expected file is present
+        # A missing manifest here would publish a release that breaks every
+        # client's update check, so it is checked rather than assumed.
+        run: |
+          set -e
+          for f in artifacts/windows-build/version.json \
+                   artifacts/windows-build/SentraSetup.exe \
+                   artifacts/macos-build/Sentra-*.dmg; do
+            ls -lh $f
+          done
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Sentra ${{ steps.version.outputs.version }}
+          body_path: artifacts/windows-build/release_notes.md
+          # SentraSetup.exe (unversioned) is the same bytes as the versioned
+          # copy, published so /releases/latest/download/SentraSetup.exe is a
+          # permanent download link. The manifest names the versioned copy, so
+          # a cache can never hand a client the wrong body under a name it
+          # already trusts.
+          files: |
+            artifacts/windows-build/SentraSetup.exe
+            artifacts/windows-build/SentraSetup-*.exe
+            artifacts/windows-build/version.json
+            artifacts/windows-build/release_notes.md
+            artifacts/macos-build/Sentra-*.dmg
