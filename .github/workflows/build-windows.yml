@@ -167,7 +167,14 @@ jobs:
         with:
           name: Sentra ${{ steps.version.outputs.version }}
           body_path: windows/output/release_notes.md
+          # SentraSetup.exe (unversioned) is the same bytes as the versioned
+          # copy, published so that
+          #   /releases/latest/download/SentraSetup.exe
+          # is a permanent download link the README can point at without being
+          # edited every release. The manifest still names the versioned copy —
+          # see windows/make_release.py for why that distinction matters.
           files: |
+            windows/output/SentraSetup.exe
             windows/output/SentraSetup-*.exe
             windows/output/version.json
             windows/output/release_notes.md

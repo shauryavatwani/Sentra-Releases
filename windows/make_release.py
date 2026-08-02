@@ -41,6 +41,43 @@ def read_version() -> str:
     return match.group(1)
 
 
+def _changelog_section(version: str) -> str:
+    """The CHANGELOG.md section for this version, or "" if there isn't one.
+
+    Sections are ``## <version>`` headings; everything up to the next ``##``
+    belongs to that release.
+    """
+    changelog = PROJECT_ROOT / "CHANGELOG.md"
+    try:
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+
+    collected: list[str] = []
+    inside = False
+    for line in lines:
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = line[3:].strip().lstrip("vV").startswith(version)
+            continue
+        if inside:
+            collected.append(line)
+
+    return "\n".join(collected).strip()
+
+
+def _first_paragraph(text: str) -> str:
+    """One-line summary for the manifest's `notes`, shown in-app before installing."""
+    for block in text.split("\n\n"):
+        cleaned = " ".join(
+            line.lstrip("-*# ").strip() for line in block.strip().splitlines()
+        ).strip()
+        if cleaned:
+            return cleaned[:300]
+    return ""
+
+
 def sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -61,9 +98,17 @@ def main() -> int:
     version = read_version()
     build_date = __import__("datetime").date.today().isoformat()
 
-    # Version-stamped filename so several releases can sit in one bucket and a
-    # client that downloaded 1.2.0 never receives a 1.3.0 body under the old
-    # name from a cache.
+    # Two copies of the same bytes, published under two names, for two jobs:
+    #
+    #   SentraSetup-<version>.exe  is what the manifest points at. Version in
+    #       the name so several releases coexist in one bucket and a client
+    #       that downloaded 1.2.0 can never be handed a 1.3.0 body under the
+    #       old name by a cache — which would fail the checksum and look like
+    #       tampering.
+    #   SentraSetup.exe            is the human link. GitHub serves
+    #       /releases/latest/download/<name>, so an unversioned name gives a
+    #       permanent "download the current version" URL that a README can
+    #       point at without being edited on every release.
     release_name = f"SentraSetup-{version}.exe"
     stamped = OUTPUT_DIR / release_name
     if stamped.resolve() != INSTALLER.resolve():
@@ -83,11 +128,20 @@ def main() -> int:
     manifest_path = OUTPUT_DIR / "version.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
+    # Release notes come from CHANGELOG.md when it has a section for this
+    # version, so what shows on the GitHub release page is written
+    # deliberately alongside the code rather than typed into a web form after
+    # the fact (or, as happened once, left as an empty bullet). Falls back to a
+    # stub only when the changelog has nothing to say about this version.
     notes_path = OUTPUT_DIR / "release_notes.md"
-    if not notes_path.exists():
+    notes_body = _changelog_section(version)
+    if notes_body:
+        notes_path.write_text(notes_body, encoding="utf-8")
+        manifest["notes"] = _first_paragraph(notes_body)
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    elif not notes_path.exists():
         notes_path.write_text(
-            f"# Sentra {version}\n\nReleased {build_date}.\n\n- \n",
-            encoding="utf-8",
+            f"# Sentra {version}\n\nReleased {build_date}.\n", encoding="utf-8"
         )
 
     (OUTPUT_DIR / "PUBLISHING.txt").write_text(

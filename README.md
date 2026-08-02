@@ -3,20 +3,26 @@
 B2B AI CCTV intelligence for institutional security — face recognition, fight
 detection, and visitor management, running against real camera footage.
 
-## Get the app
+## Download
 
-Sentra ships as a normal desktop application, not something you build from
-source to use.
+### ➡️ [**Get the latest release**](../../releases/latest)
 
-| Platform | Get it |
-|---|---|
-| **Windows** | Download the latest `SentraSetup-*.exe` from [Releases](../../releases/latest) |
-| **macOS** (Apple Silicon) | Download the latest `Sentra-*.dmg` from [Releases](../../releases/latest) |
+Grab `SentraSetup-*.exe` for **Windows**, or `Sentra-*.dmg` for **macOS**
+(Apple Silicon). Run it, click through, done — everything is bundled, so
+there is no Python to install and nothing to configure.
 
-Both are unsigned (no paid developer certificate yet), so the first launch
-needs one extra click:
-- **Windows**: SmartScreen warns → "More info" → "Run anyway"
-- **macOS**: Gatekeeper blocks it → right-click the app → "Open"
+**Your computer will warn you the first time.** Neither build is signed with
+a paid certificate, so:
+
+- **Windows** — SmartScreen shows *"Windows protected your PC"*.
+  Click **More info → Run anyway**.
+- **macOS** — Gatekeeper says it *"cannot be opened"*. **Right-click** the
+  app and choose **Open** (double-clicking will not offer the option).
+
+Both are expected, and both only happen once.
+
+After that Sentra checks for updates by itself and offers them from
+**Settings**, so nobody needs to come back here to stay current.
 
 Once installed, Sentra checks for updates on its own and offers them from
 **Settings** — a security team never has to reinstall by hand.
