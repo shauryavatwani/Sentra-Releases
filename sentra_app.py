@@ -352,17 +352,29 @@ def run_selftest() -> int:
         return "YOLOv8 pose + ByteTrack ready"
 
     def _insightface():
-        # Loading the model is not enough: 1.0.2 shipped a Windows build where
-        # FaceAnalysis(...).prepare() succeeded cleanly and this check would
-        # have passed, but the first real face lazily imports
-        # scipy._lib._ccallback deep inside alignment and only then blew up
-        # with "scipy install ... seems to be broken" — a packaging gap
-        # (missing OpenBLAS DLLs), not a code bug, invisible until real
-        # inference actually runs. Running .get() on a synthetic image here
-        # exercises that exact lazy-import path so a build with the same gap
-        # fails in CI instead of on a client's PC.
+        # Three separate things, because each fails independently and only the
+        # first was ever checked before 1.0.3.
+        #
+        # The model files existing proves nothing: 1.0.2 shipped a Windows
+        # build whose models were all present and whose FaceAnalysis.prepare()
+        # succeeded, but which could not recognise a single face — every
+        # attempt died inside model.get() with "The `scipy` install you are
+        # using seems to be broken (extension modules cannot be imported)".
+        #
+        # Nor is calling model.get() on a blank frame enough. FaceAnalysis.get()
+        # returns early on `bboxes.shape[0] == 0`, so with no face in the image
+        # the alignment and recognition models never run at all — which is
+        # exactly the code that pulls in scipy. A blank-frame check passes on a
+        # completely broken build. (1.0.3 shipped with that mistake in it.)
+        #
+        # face_align.norm_crop is what arcface_onnx.py calls for every detected
+        # face, and it reaches skimage.transform -> scipy._lib._ccallback. Five
+        # synthetic landmarks exercise that whole path with no real face needed,
+        # so a build missing scipy's compiled extensions fails here in CI
+        # instead of on a client's machine.
         import numpy as np
         from insightface.app import FaceAnalysis
+        from insightface.utils import face_align
 
         import sentra_paths as sp
 
@@ -372,9 +384,43 @@ def run_selftest() -> int:
 
         model = FaceAnalysis(root=str(root), providers=["CPUExecutionProvider"])
         model.prepare(ctx_id=0, det_size=(320, 320))
-        blank = np.zeros((320, 320, 3), dtype=np.uint8)
-        model.get(blank)  # no face in a blank frame; the point is it must not raise
-        return f"{root} (real inference OK)"
+
+        canvas = np.zeros((256, 256, 3), dtype=np.uint8)
+        landmarks = np.array(
+            [[80, 100], [150, 100], [115, 140], [90, 180], [145, 180]],
+            dtype=np.float32,
+        )
+        aligned = face_align.norm_crop(canvas, landmark=landmarks, image_size=112)
+        if aligned.shape != (112, 112, 3):
+            raise RuntimeError(f"face alignment returned {aligned.shape}, expected (112,112,3)")
+
+        # Belt and braces: name the module whose absence caused the 1.0.2/1.0.3
+        # Windows failure, so a regression reports itself by name rather than as
+        # a shape mismatch three layers up.
+        import scipy._lib._ccallback  # noqa: F401
+
+        # A second, separate bug that 1.0.3 also shipped on BOTH platforms:
+        # insightface.data.get_object() reads meanshape_68.pkl from a
+        # TOP-LEVEL `objects/` directory beside the bundle root when frozen —
+        # not from inside the insightface package — so collect_data_files()
+        # never saw it. get_object() swallows a missing file and returns None
+        # rather than raising, so the failure doesn't surface until three
+        # calls later, inside estimate_affine_matrix_3d23d(None, pred), as
+        # "'NoneType' object has no attribute 'shape'" — for every single
+        # detected face on every frozen build. norm_crop() above cannot catch
+        # this: it only exercises the recognition-alignment path, never the
+        # landmark_3d_68 task where this file is actually used. Checked
+        # directly, by name, rather than only proven indirectly through the
+        # face pipeline — a call this cheap should never be inferred.
+        from insightface.data.pickle_object import get_object
+
+        if get_object("meanshape_68.pkl") is None:
+            raise RuntimeError(
+                "insightface's meanshape_68.pkl reference data is missing — "
+                "every detected face would fail recognition at runtime"
+            )
+
+        return f"{root} (models + face alignment + scipy + reference data OK)"
 
     def _websockets():
         # uvicorn without the [standard] extra serves HTTP fine and 404s every

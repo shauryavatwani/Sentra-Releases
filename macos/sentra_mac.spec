@@ -26,7 +26,7 @@ import re
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent
 
@@ -96,6 +96,39 @@ datas += collect_data_files("insightface")
 datas += collect_data_files("zeep")
 datas += collect_data_files("onvif")
 
+# scipy + scikit-image. InsightFace's face alignment (face_align.norm_crop,
+# called for every detected face) reaches skimage.transform -> scipy, and a
+# bundle missing scipy's compiled extensions recognises nobody while looking
+# completely healthy otherwise. The macOS bundle has happened to pick these up
+# already, but that was incidental rather than declared — and the equivalent
+# gap is what broke the Windows build. Collected explicitly on both platforms
+# so neither depends on a hook version behaving a particular way.
+_scipy_datas, _scipy_binaries, _scipy_hidden = collect_all("scipy")
+_skimage_datas, _skimage_binaries, _skimage_hidden = collect_all("skimage")
+datas += _scipy_datas + _skimage_datas
+
+# insightface.data.get_object() reads meanshape_68.pkl (used by the
+# landmark_3d_68 model every detected face goes through) from a TOP-LEVEL
+# `objects/` directory beside the bundle root when frozen, not from inside the
+# insightface package — the same sibling-directory trap as onvif-zeep's WSDLs
+# below. get_object() swallows the missing file and returns None, so the
+# failure surfaces three calls later as `'NoneType' object has no attribute
+# 'shape'` inside estimate_affine_matrix_3d23d, for every detected face, on
+# every frozen build on both platforms — "the live feed works but nobody is
+# ever recognised". This was never exercised on a real face on this machine
+# before (the packaged app's camera never connected), so it shipped in 1.0.3
+# on both platforms undetected. Found 2026-08-02 by tracing the traceback a
+# real Windows install produced.
+import insightface as _insightface
+
+_INSIGHTFACE_OBJECTS_DIR = Path(_insightface.__file__).resolve().parent / "data" / "objects"
+if not _INSIGHTFACE_OBJECTS_DIR.is_dir():
+    raise SystemExit(
+        f"\nERROR: insightface is installed but its 'objects' data directory is not at:\n"
+        f"    {_INSIGHTFACE_OBJECTS_DIR}\n"
+    )
+datas.append((str(_INSIGHTFACE_OBJECTS_DIR), "objects"))
+
 # onvif-zeep keeps its WSDLs in a TOP-LEVEL `wsdl/` directory beside the
 # package rather than inside it, so collect_data_files does not see them.
 # sentra_paths.onvif_wsdl_dir() is the other half, pointing the library here.
@@ -162,6 +195,9 @@ hiddenimports += collect_submodules("ultralytics")
 hiddenimports += collect_submodules("skimage")
 hiddenimports += collect_submodules("zeep")
 hiddenimports += ["onvif", "onvif.client", "onvif.exceptions"]
+hiddenimports += _scipy_hidden + _skimage_hidden
+
+binaries = list(_scipy_binaries) + list(_skimage_binaries)
 
 # --- Analysis -------------------------------------------------------------
 
@@ -172,7 +208,7 @@ a = Analysis(
         str(PROJECT_ROOT / "Formal_Code"),
         str(PROJECT_ROOT / "backend_v2"),
     ],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

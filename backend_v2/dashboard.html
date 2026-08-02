@@ -1308,7 +1308,7 @@ function renderUpdate() {
     barActions.innerHTML = '';
   } else if (s.status === 'ready') {
     barText.innerHTML = `<b>Sentra ${ver} is ready to install.</b> Your data is kept.`;
-    barActions.innerHTML = admin
+    barActions.innerHTML = admin && s.supported
       ? `<button class="update-pill" onclick="installUpdate(this)">Install and restart</button>
          <button class="update-ghost" onclick="dismissUpdate()">Later</button>`
       : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`;
@@ -1340,10 +1340,12 @@ function renderUpdate() {
       buttons = ''; break;
     case 'ready':
       body = `<b>Version ${ver} is downloaded and verified.</b> Sentra will close and reopen during installation.${notes}`;
-      buttons = admin
-        ? `<button class="btn-primary" onclick="installUpdate(this)">Install and restart</button>
-           <button class="btn-secondary" onclick="dismissStaged(this)">Discard download</button>`
-        : `<div class="form-msg" style="background:var(--fill); color:var(--text-dim)">Only the security management team can install updates.</div>`;
+      buttons = !admin
+        ? `<div class="form-msg" style="background:var(--fill); color:var(--text-dim)">Only the security management team can install updates.</div>`
+        : s.supported
+          ? `<button class="btn-primary" onclick="installUpdate(this)">Install and restart</button>
+             <button class="btn-secondary" onclick="dismissStaged(this)">Discard download</button>`
+          : `<button class="btn-secondary" onclick="dismissStaged(this)">Discard download</button>`;
       break;
     case 'installing':
       body = 'The installer has started. Sentra will close and reopen shortly.'; buttons = ''; break;
@@ -1358,7 +1360,17 @@ function renderUpdate() {
 
   if (!s.supported && ['available', 'ready'].includes(s.status)) {
     buttons += `<div class="form-msg" style="background:var(--fill); color:var(--text-dim); width:100%; margin-top:10px">
-      Automatic installation runs on Windows. On this machine the download can be run manually.</div>`;
+      Automatic installation isn't available on this machine's platform. Download the update above and install it by hand.</div>`;
+  }
+
+  // install()/download() can fail without changing s.status away from
+  // 'available'/'ready' (e.g. a declined UAC prompt, a macOS permission
+  // error, a checksum mismatch on the staged file) — the failure is real but
+  // the state you'd retry from is unchanged, so it doesn't belong in the
+  // dedicated 'error' case above. Surfacing it here means it is never
+  // silently dropped just because the status didn't change to match.
+  if (s.error && s.status !== 'error') {
+    body += `<div class="form-msg error" style="margin-top:10px">${esc(s.error)}</div>`;
   }
 
   panel.innerHTML = body;

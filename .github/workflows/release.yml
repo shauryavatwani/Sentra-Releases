@@ -125,21 +125,17 @@ jobs:
         # "Program Files (x86)". ${env:...} braces the name so it is literal.
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows\sentra.iss'
 
-      - name: Generate the release manifest
-        # Computes the real sha256 of the installer just built. Clients refuse
-        # any download whose digest does not match, so this must never be
-        # hand-written.
-        run: python windows/make_release.py "https://github.com/${{ github.repository }}/releases/latest/download"
-
       - name: Upload the Windows build
+        # No manifest generated here anymore. It moved to the publish job,
+        # which is the first point where both this installer AND the macOS
+        # disk image exist together — a manifest built from only one platform
+        # cannot describe the other, and generating it per-job is exactly the
+        # kind of "two jobs racing to assemble one release" pattern that broke
+        # the update feed once already (see the publish job below).
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: |
-            windows/output/SentraSetup.exe
-            windows/output/SentraSetup-*.exe
-            windows/output/version.json
-            windows/output/release_notes.md
+          path: windows/output/SentraSetup.exe
           retention-days: 30
 
   macos:
@@ -199,45 +195,82 @@ jobs:
     # The whole point of this file: nothing is released until BOTH platforms
     # have built and passed their self-tests. A partial release is worse than a
     # late one, because the newest release is what every client polls.
+    #
+    # The release manifest is built HERE rather than inside either platform's
+    # job, and that is deliberate: this is the first point where both the
+    # Windows installer and the macOS disk image exist together, so it is the
+    # only place a manifest describing both of them can honestly be written.
+    # Building it earlier, split across two jobs that do not wait for each
+    # other, is exactly the "two jobs racing to assemble one release" pattern
+    # that made a past release exist with a Windows-only manifest for ~15
+    # minutes while macOS was still building.
     needs: [windows, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      - name: Build the release manifest
+        # Computes the real sha256 of each installer that was actually built.
+        # Clients refuse any download whose digest does not match, so this
+        # must never be hand-written.
+        run: |
+          python windows/make_release.py \
+            "https://github.com/${{ github.repository }}/releases/latest/download" \
+            --installer artifacts/windows-build/SentraSetup.exe \
+            --dmg "artifacts/macos-build/Sentra-*.dmg" \
+            --out artifacts/manifest
+
       - name: Read the version
         id: version
         run: |
-          V=$(python3 -c "import json;print(json.load(open('artifacts/windows-build/version.json'))['version'])")
+          V=$(python3 -c "import json;print(json.load(open('artifacts/manifest/version.json'))['version'])")
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "publishing Sentra $V"
 
-      - name: Confirm every expected file is present
-        # A missing manifest here would publish a release that breaks every
-        # client's update check, so it is checked rather than assumed.
+      - name: Confirm every expected file is present, including both platforms in the manifest
+        # A missing manifest, or a manifest missing one platform's entry,
+        # would publish a release that breaks that platform's update check —
+        # checked rather than assumed.
         run: |
           set -e
-          for f in artifacts/windows-build/version.json \
+          for f in artifacts/manifest/version.json \
+                   artifacts/manifest/SentraSetup-*.exe \
                    artifacts/windows-build/SentraSetup.exe \
                    artifacts/macos-build/Sentra-*.dmg; do
             ls -lh $f
           done
+          python3 -c "
+          import json
+          m = json.load(open('artifacts/manifest/version.json'))
+          missing = [p for p in ('win32', 'darwin') if p not in m.get('platforms', {})]
+          if missing:
+              raise SystemExit(f'version.json is missing platform(s): {missing}')
+          print('manifest covers both platforms:', list(m['platforms']))
+          "
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           name: Sentra ${{ steps.version.outputs.version }}
-          body_path: artifacts/windows-build/release_notes.md
+          body_path: artifacts/manifest/release_notes.md
           # SentraSetup.exe (unversioned) is the same bytes as the versioned
           # copy, published so /releases/latest/download/SentraSetup.exe is a
           # permanent download link. The manifest names the versioned copy, so
           # a cache can never hand a client the wrong body under a name it
-          # already trusts.
+          # already trusts. The macOS dmg is already version-named by
+          # macos/build_macos.sh, so it needs no separate stamped copy.
           files: |
             artifacts/windows-build/SentraSetup.exe
-            artifacts/windows-build/SentraSetup-*.exe
-            artifacts/windows-build/version.json
-            artifacts/windows-build/release_notes.md
+            artifacts/manifest/SentraSetup-*.exe
+            artifacts/manifest/version.json
+            artifacts/manifest/release_notes.md
             artifacts/macos-build/Sentra-*.dmg

@@ -137,6 +137,36 @@ _scipy_datas, _scipy_binaries, _scipy_hidden = collect_all("scipy")
 _skimage_datas, _skimage_binaries, _skimage_hidden = collect_all("skimage")
 datas += _scipy_datas + _skimage_datas
 
+# insightface.data.get_object() reads its pickled reference data (currently
+# just meanshape_68.pkl, used by the landmark_3d_68 model every detected face
+# goes through) from a TOP-LEVEL `objects/` directory beside sys._MEIPASS when
+# frozen — not from inside the insightface package, so collect_data_files
+# above (which preserves the package's own internal layout) does not see it.
+# Exactly the same sibling-directory trap as onvif-zeep's WSDLs below.
+#
+# Unlike the ONVIF case this is not a soft "feature unavailable": get_object()
+# swallows the missing file and returns None, so the failure surfaces three
+# calls later as `'NoneType' object has no attribute 'shape'` inside
+# insightface.utils.transform.estimate_affine_matrix_3d23d, for every single
+# detected face, on every frozen build — the "the live feed works but nobody
+# is ever recognised" bug. Found 2026-08-02 by tracing that exact traceback;
+# it was invisible before because the Windows scipy bug (above) always failed
+# first, and the packaged macOS build had never actually reached a live face
+# on this machine to expose it.
+import insightface as _insightface
+
+_INSIGHTFACE_OBJECTS_DIR = Path(_insightface.__file__).resolve().parent / "data" / "objects"
+if _INSIGHTFACE_OBJECTS_DIR.is_dir():
+    datas.append((str(_INSIGHTFACE_OBJECTS_DIR), "objects"))
+    print(f"[sentra.spec] bundling insightface reference objects from {_INSIGHTFACE_OBJECTS_DIR}")
+else:
+    raise SystemExit(
+        f"\nERROR: insightface is installed but its 'objects' data directory is not at:\n"
+        f"    {_INSIGHTFACE_OBJECTS_DIR}\n\n"
+        "Every detected face would fail recognition at runtime with "
+        "\"'NoneType' object has no attribute 'shape'\" deep inside insightface.\n"
+    )
+
 # onvif-zeep keeps its WSDL files in a TOP-LEVEL `wsdl/` directory beside the
 # package rather than inside it, so collect_data_files("onvif") above does not
 # see them. Without this, ONVIF camera discovery fails only at the moment
