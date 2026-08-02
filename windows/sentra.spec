@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent
 
@@ -117,6 +117,26 @@ datas += collect_data_files("insightface")
 datas += collect_data_files("zeep")
 datas += collect_data_files("onvif")  # onvif/version.txt
 
+# scipy + scikit-image, Windows-only gap (found 2026-08-02, "face detection
+# works on macOS, not on Windows"): InsightFace's face-alignment step lazily
+# imports scipy._lib._ccallback the first time a real face is aligned — not at
+# model load, so a build that starts, serves the dashboard, and passes every
+# --selftest check up to this point still fails the instant a face appears,
+# with "The `scipy` install you are using seems to be broken (extension
+# modules cannot be imported)". Static import analysis never sees that lazy
+# import, and scipy's Windows wheels additionally load their OpenBLAS runtime
+# from a *sibling* DLL folder via `_distributor_init.py`'s DLL-search-path
+# trick rather than a Python import — collect_submodules() alone cannot find
+# binaries reached that way. macOS wheels bundle the equivalent differently
+# (no external DLL step), which is why this never showed up on the Mac build.
+# collect_all() pulls submodules + data files + binaries in one call — the
+# same thing the community scipy/scikit-image PyInstaller hooks do — added
+# explicitly here as insurance against a hook-version gap rather than trusting
+# it silently. Cheap: purely additive, cannot break an already-working build.
+_scipy_datas, _scipy_binaries, _scipy_hidden = collect_all("scipy")
+_skimage_datas, _skimage_binaries, _skimage_hidden = collect_all("skimage")
+datas += _scipy_datas + _skimage_datas
+
 # onvif-zeep keeps its WSDL files in a TOP-LEVEL `wsdl/` directory beside the
 # package rather than inside it, so collect_data_files("onvif") above does not
 # see them. Without this, ONVIF camera discovery fails only at the moment
@@ -201,6 +221,9 @@ hiddenimports += collect_submodules("skimage")
 # is imported lazily inside a function so static analysis never sees it.
 hiddenimports += collect_submodules("zeep")
 hiddenimports += ["onvif", "onvif.client", "onvif.exceptions"]
+hiddenimports += _scipy_hidden + _skimage_hidden
+
+binaries = list(_scipy_binaries) + list(_skimage_binaries)
 
 # --- Analysis -------------------------------------------------------------
 
@@ -211,7 +234,7 @@ a = Analysis(
         str(PROJECT_ROOT / "Formal_Code"),
         str(PROJECT_ROOT / "backend_v2"),
     ],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

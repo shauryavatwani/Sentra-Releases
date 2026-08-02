@@ -352,6 +352,16 @@ def run_selftest() -> int:
         return "YOLOv8 pose + ByteTrack ready"
 
     def _insightface():
+        # Loading the model is not enough: 1.0.2 shipped a Windows build where
+        # FaceAnalysis(...).prepare() succeeded cleanly and this check would
+        # have passed, but the first real face lazily imports
+        # scipy._lib._ccallback deep inside alignment and only then blew up
+        # with "scipy install ... seems to be broken" — a packaging gap
+        # (missing OpenBLAS DLLs), not a code bug, invisible until real
+        # inference actually runs. Running .get() on a synthetic image here
+        # exercises that exact lazy-import path so a build with the same gap
+        # fails in CI instead of on a client's PC.
+        import numpy as np
         from insightface.app import FaceAnalysis
 
         import sentra_paths as sp
@@ -359,7 +369,12 @@ def run_selftest() -> int:
         root = sp.insightface_root()
         if not (root / "models" / "buffalo_l").is_dir():
             raise RuntimeError(f"model set missing under {root}")
-        return str(root)
+
+        model = FaceAnalysis(root=str(root), providers=["CPUExecutionProvider"])
+        model.prepare(ctx_id=0, det_size=(320, 320))
+        blank = np.zeros((320, 320, 3), dtype=np.uint8)
+        model.get(blank)  # no face in a blank frame; the point is it must not raise
+        return f"{root} (real inference OK)"
 
     def _websockets():
         # uvicorn without the [standard] extra serves HTTP fine and 404s every

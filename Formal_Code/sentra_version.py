@@ -23,7 +23,7 @@ import sentra_paths
 # --- Identity ---------------------------------------------------------------
 
 APP_NAME = "Sentra"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 PUBLISHER = "Delhi Public School Bangalore East"
 
 # Where the update manifest lives by default. Deliberately just a URL to a JSON

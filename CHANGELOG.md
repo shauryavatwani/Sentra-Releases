@@ -5,6 +5,21 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.3
+
+Fixes face recognition never working on Windows, even though the camera feed
+looked completely normal.
+
+- **Fixed: nobody was ever detected on Windows — no boxes, no "Unknown", just
+  the live picture.** The Windows build was missing a runtime component that
+  face recognition depends on, so every attempt to identify a face failed
+  silently in the background log while the rest of the app looked healthy.
+  This never showed up on macOS, which packages that component differently.
+- The self-test every build must pass before it can ship now actually runs a
+  face through the recognizer, instead of only checking that the model files
+  are present. This exact bug could not ship again without that check failing
+  first.
+
 ## 1.0.2
 
 Fixes the "Install and restart" button, which did nothing.

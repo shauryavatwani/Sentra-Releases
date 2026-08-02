@@ -62,6 +62,14 @@ jobs:
         run: |
           python -m pip install -r backend_v2/requirements.txt
           python -m pip install pyinstaller==6.11.1
+          # Explicit rather than trusting whatever pyinstaller pulls in
+          # transitively: this is the package whose scipy/scikit-image hooks
+          # are supposed to bundle their Windows-only OpenBLAS DLLs, and an
+          # old transitive version is exactly how that silently stops
+          # happening. windows/sentra.spec also collects both explicitly as a
+          # second line of defense — see the comment there for why (1.0.3:
+          # face recognition worked on macOS, not on Windows, because of this).
+          python -m pip install --upgrade pyinstaller-hooks-contrib
 
       - name: Download the InsightFace models
         if: steps.insightface-cache.outputs.cache-hit != 'true'
