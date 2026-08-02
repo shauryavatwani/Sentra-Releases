@@ -377,18 +377,49 @@ def install() -> dict:
             f"Run the downloaded installer manually: {path}",
         }
 
+    # ShellExecuteW with the "runas" verb, NOT subprocess.Popen.
+    #
+    # The installer writes to Program Files and adds a firewall rule, so it is
+    # manifested requireAdministrator. Sentra itself deliberately runs
+    # unelevated (see `runasoriginaluser` in windows/sentra.iss). CreateProcess
+    # — which is what Popen uses — refuses that combination outright with
+    # ERROR_ELEVATION_REQUIRED and never shows a UAC prompt; only ShellExecute
+    # knows how to ask the user to elevate.
+    #
+    # /SILENT keeps the wizard out of the way but still shows a progress
+    # window, so the update never looks like a frozen application.
     try:
-        # /SILENT keeps the wizard out of the way but still shows a progress
-        # window, so the update never looks like a frozen application.
-        subprocess.Popen(
-            [str(path), "/SILENT", "/NORESTART"],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            close_fds=True,
+        import ctypes
+
+        SW_SHOWNORMAL = 1
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", str(path), "/SILENT /NORESTART", None, SW_SHOWNORMAL
         )
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001
         return {**state(), "error": f"Could not start the installer: {exc}"}
 
+    # ShellExecuteW returns a value <= 32 to mean failure; the number says why.
+    if result <= 32:
+        if result == 5:  # SE_ERR_ACCESSDENIED — the UAC prompt was declined
+            message = (
+                "Installing the update needs administrator permission. "
+                "Choose Yes on the Windows prompt and try again."
+            )
+        else:
+            message = f"Could not start the installer (Windows error {result})."
+        return {**state(), "error": message}
+
     _set(status="installing")
+
+    # Step out of the installer's way. It replaces this executable and stops
+    # the running copy itself, but doing it here means the handover never
+    # depends on that timing — and it lets this response reach the browser
+    # first, so the dashboard shows "installing" rather than dying mid-request.
+    def _quit_for_installer() -> None:
+        time.sleep(3)
+        os._exit(0)
+
+    threading.Thread(target=_quit_for_installer, name="sentra-quit", daemon=True).start()
     return state()
 
 

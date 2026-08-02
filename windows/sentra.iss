@@ -209,7 +209,15 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/F /IM {#AppExeName} /T', '', SW_HIDE,
+  // NO /T HERE. /T kills the whole process tree, and when this installer was
+  // launched by Sentra's own "Install and restart" button it IS a descendant
+  // of Sentra.exe — so /T made the installer kill itself a moment after
+  // starting. The symptom was a window that flashed open and vanished with
+  // nothing installed.
+  //
+  // /T is not needed anyway: the engine runs as "Sentra.exe --engine", so it
+  // shares the image name and /IM already matches both processes.
+  Exec('taskkill.exe', '/F /IM {#AppExeName}', '', SW_HIDE,
        ewWaitUntilTerminated, ResultCode);
   // Give Windows a moment to release the file locks before the copy starts.
   Sleep(1500);
@@ -234,7 +242,10 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    Exec('taskkill.exe', '/F /IM {#AppExeName} /T', '', SW_HIDE,
+    // Same reasoning as PrepareToInstall: no /T. The uninstaller can be
+    // launched from Sentra's own folder and does not need to take a process
+    // tree with it; /IM already covers both the launcher and the engine.
+    Exec('taskkill.exe', '/F /IM {#AppExeName}', '', SW_HIDE,
          ewWaitUntilTerminated, ResultCode);
     Exec(ExpandConstant('{sys}\netsh.exe'),
          'advfirewall firewall delete rule name="Sentra Dashboard (TCP 8000)"',

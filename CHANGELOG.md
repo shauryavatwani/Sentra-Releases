@@ -5,6 +5,24 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.2
+
+Fixes the "Install and restart" button, which did nothing.
+
+- **Fixed: installing an update silently failed.** The update downloaded
+  correctly, but the installer shut itself down a moment after starting, so
+  nothing was ever installed. It was terminating the running copy of Sentra
+  *and everything Sentra had started* — which, since Sentra had just started
+  the installer, included the installer itself.
+- **Fixed: the installer is now asked for administrator permission properly.**
+  Windows will show its usual "Do you want to allow this app to make changes?"
+  prompt. Choose Yes; declining now gives a clear message instead of failing
+  quietly.
+
+If you are stuck on an older version, you can always install by hand from
+`C:\ProgramData\Sentra\.updates\` — an installer run from Explorer was
+never affected by this.
+
 ## 1.0.1
 
 Recognised faces are now picked up without restarting the engine.
