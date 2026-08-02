@@ -232,6 +232,13 @@ def _tell_user(message: str, title: str = "Sentra") -> None:
     A windowed build's ``print`` goes to a log file nobody opens. When the
     reason the app is not starting is something the user can act on, it has to
     be on screen. Falls back to printing where there is no message box.
+
+    macOS needs this as much as Windows and did not have it. Sentra runs as an
+    ``LSUIElement`` background app there, so a startup failure produced no
+    window, no Dock icon and no error — just an app that appeared not to open,
+    with macOS's own "The application "Sentra" is not open anymore" as the only
+    thing the operator ever saw. osascript is the equivalent of MessageBoxW:
+    always present, needs no extra dependency.
     """
     print(message)
     if sys.platform == "win32":
@@ -241,6 +248,29 @@ def _tell_user(message: str, title: str = "Sentra") -> None:
             MB_OK, MB_ICONINFORMATION = 0x0, 0x40
             ctypes.windll.user32.MessageBoxW(
                 None, message, title, MB_OK | MB_ICONINFORMATION
+            )
+        except Exception:  # noqa: BLE001 — never let a dialog failure escalate
+            pass
+    elif sys.platform == "darwin":
+        try:
+            import subprocess as _sp
+
+            # Passed as argv, never interpolated into the AppleScript source —
+            # a message containing a quote would otherwise break the script (or
+            # worse, change what it does).
+            _sp.run(
+                [
+                    "/usr/bin/osascript",
+                    "-e",
+                    'on run {msg, ttl}\n'
+                    '  display dialog msg with title ttl '
+                    'buttons {"OK"} default button "OK" with icon caution\n'
+                    'end run',
+                    message,
+                    title,
+                ],
+                capture_output=True,
+                timeout=120,
             )
         except Exception:  # noqa: BLE001 — never let a dialog failure escalate
             pass
@@ -340,16 +370,28 @@ def run_selftest() -> int:
     print(f"Sentra self-test (frozen={getattr(sys, 'frozen', False)})")
 
     def _pose_model():
-        # Actually load it. The engine wraps this in a try/except so a failure
-        # degrades to "fight detection off", which is right at runtime and
-        # exactly why it has to be checked deliberately here.
+        # Loading is not enough — it has to actually run. ultralytics defers a
+        # lot of work (and a lot of imports) until the first real inference,
+        # and .track() pulls in the ByteTrack machinery that plain .predict()
+        # never touches. A bundle whose model loads but whose tracking call
+        # raises would pass a load-only check and then degrade to "fight
+        # detection off" at runtime, which is exactly the kind of silent,
+        # graceful failure this whole self-test exists to catch. Runs the real
+        # anomaly_detection code path (detect_people -> analyze_frame), not a
+        # bare YOLO call, so the thing under test is the thing that ships.
+        import numpy as np
+
         import anomaly_detection
 
         detector = anomaly_detection.FightDetector(label="selftest")
         model = detector.load_pose_model()
         if model is None:
             raise RuntimeError("load_pose_model() returned nothing")
-        return "YOLOv8 pose + ByteTrack ready"
+
+        frame = np.zeros((270, 480, 3), dtype=np.uint8)
+        detector.detect_people(frame)
+        detector.analyze_frame(frame, [])
+        return "YOLOv8 pose + ByteTrack ready (real inference OK)"
 
     def _insightface():
         # Three separate things, because each fails independently and only the
@@ -367,14 +409,16 @@ def run_selftest() -> int:
         # exactly the code that pulls in scipy. A blank-frame check passes on a
         # completely broken build. (1.0.3 shipped with that mistake in it.)
         #
-        # face_align.norm_crop is what arcface_onnx.py calls for every detected
-        # face, and it reaches skimage.transform -> scipy._lib._ccallback. Five
-        # synthetic landmarks exercise that whole path with no real face needed,
-        # so a build missing scipy's compiled extensions fails here in CI
-        # instead of on a client's machine.
-        import numpy as np
+        # What actually settles it: run a real face through the real pipeline.
+        # A bundled synthetic face image is detected, aligned, landmarked and
+        # embedded exactly as a face off the camera would be, so every
+        # component the engine depends on has to genuinely work — the detector,
+        # the landmark_3d_68 task (meanshape_68.pkl), the alignment path
+        # (skimage -> scipy) and the ArcFace recogniser. Nothing about this can
+        # pass on a build that cannot recognise anybody, which is the property
+        # every cheaper version of this check turned out to lack.
+        import cv2
         from insightface.app import FaceAnalysis
-        from insightface.utils import face_align
 
         import sentra_paths as sp
 
@@ -385,33 +429,31 @@ def run_selftest() -> int:
         model = FaceAnalysis(root=str(root), providers=["CPUExecutionProvider"])
         model.prepare(ctx_id=0, det_size=(320, 320))
 
-        canvas = np.zeros((256, 256, 3), dtype=np.uint8)
-        landmarks = np.array(
-            [[80, 100], [150, 100], [115, 140], [90, 180], [145, 180]],
-            dtype=np.float32,
-        )
-        aligned = face_align.norm_crop(canvas, landmark=landmarks, image_size=112)
-        if aligned.shape != (112, 112, 3):
-            raise RuntimeError(f"face alignment returned {aligned.shape}, expected (112,112,3)")
+        fixture = sp.selftest_face_image()
+        if not fixture.is_file():
+            raise RuntimeError(f"self-test face image missing from the bundle at {fixture}")
+        image = cv2.imread(str(fixture))
+        if image is None:
+            raise RuntimeError(f"could not decode the self-test face image at {fixture}")
 
-        # Belt and braces: name the module whose absence caused the 1.0.2/1.0.3
-        # Windows failure, so a regression reports itself by name rather than as
-        # a shape mismatch three layers up.
+        faces = model.get(image)
+        if not faces:
+            raise RuntimeError(
+                "no face detected in the self-test image — this build cannot recognise anyone"
+            )
+        embedding = faces[0].normed_embedding
+        if embedding is None or embedding.shape != (512,):
+            raise RuntimeError(
+                f"face detected but no usable embedding produced (got {embedding if embedding is None else embedding.shape})"
+            )
+
+        # Named explicitly so a regression in either reports itself by name
+        # rather than as whatever indirect symptom it produces several layers
+        # up. Both of these have already shipped broken once: scipy's compiled
+        # extensions missing on Windows (1.0.2), and meanshape_68.pkl missing
+        # on both platforms (through 1.0.3). model.get() above would now catch
+        # either, but "which one" is worth knowing without a debugger.
         import scipy._lib._ccallback  # noqa: F401
-
-        # A second, separate bug that 1.0.3 also shipped on BOTH platforms:
-        # insightface.data.get_object() reads meanshape_68.pkl from a
-        # TOP-LEVEL `objects/` directory beside the bundle root when frozen —
-        # not from inside the insightface package — so collect_data_files()
-        # never saw it. get_object() swallows a missing file and returns None
-        # rather than raising, so the failure doesn't surface until three
-        # calls later, inside estimate_affine_matrix_3d23d(None, pred), as
-        # "'NoneType' object has no attribute 'shape'" — for every single
-        # detected face on every frozen build. norm_crop() above cannot catch
-        # this: it only exercises the recognition-alignment path, never the
-        # landmark_3d_68 task where this file is actually used. Checked
-        # directly, by name, rather than only proven indirectly through the
-        # face pipeline — a call this cheap should never be inferred.
         from insightface.data.pickle_object import get_object
 
         if get_object("meanshape_68.pkl") is None:
@@ -420,7 +462,7 @@ def run_selftest() -> int:
                 "every detected face would fail recognition at runtime"
             )
 
-        return f"{root} (models + face alignment + scipy + reference data OK)"
+        return f"{root} (real face recognised end to end, 512-d embedding)"
 
     def _websockets():
         # uvicorn without the [standard] extra serves HTTP fine and 404s every

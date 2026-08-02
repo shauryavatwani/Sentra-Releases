@@ -42,7 +42,9 @@ import hashlib
 import json
 import os
 import plistlib
+import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -69,6 +71,12 @@ STARTUP_CHECK_DELAY_SECONDS = 20
 
 STAGING_DIR = sentra_paths.DATA_ROOT / ".updates"
 USER_AGENT = f"Sentra/{sentra_version.VERSION}"
+
+# The port the dashboard is served on. Duplicated from sentra_app rather than
+# imported: sentra_app imports this module (via the backend), so importing it
+# back would be circular. Only used by the macOS relaunch, to wait until the
+# outgoing process has actually released the port.
+APP_PORT = 8000
 
 # --- State ------------------------------------------------------------------
 # One process-wide state object, guarded by a lock, snapshot-copied on read.
@@ -500,6 +508,43 @@ def install() -> dict:
     return state()
 
 
+def _stop_running_engine() -> None:
+    """Stop the detached camera engine, if one is running.
+
+    Deliberately a small local implementation rather than importing the
+    backend's identical routine: this module is imported *by* the backend, and
+    reaching back into it for one function would make the dependency circular.
+
+    POSIX-only in practice — the sole caller is the macOS install path, where
+    ``os.kill(pid, SIGTERM)`` has its ordinary meaning. (On Windows every
+    signal maps to TerminateProcess, which is why the backend's copy of this
+    is more careful; there, the installer stops the engine instead.)
+    """
+    pid_file = sentra_paths.ENGINE_PID_FILE
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return  # never started, or already cleaned up
+    if pid == os.getpid():
+        return  # refuse to signal ourselves
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pid_file.unlink(missing_ok=True)
+        return
+
+    # Give it a moment to release the camera before the replacement claims it.
+    for _ in range(20):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.1)
+
+    pid_file.unlink(missing_ok=True)
+
+
 def _running_app_bundle() -> Path | None:
     """The Sentra.app directory this process is running from, or None.
 
@@ -631,21 +676,58 @@ def _install_macos(dmg_path: Path) -> dict:
         if mount_point is not None:
             _hdiutil_detach(mount_point)
 
+    # The camera engine is a detached child, so it survives this process and
+    # would otherwise keep holding the RTSP stream while the replacement tries
+    # to open it — two engines on one camera. On Windows the installer's
+    # taskkill covers this; on macOS nothing else will, so do it here.
+    _stop_running_engine()
+
     _set(status="installing")
 
-    # Same handover pattern as the Windows branch: step out of the way on a
-    # daemon thread so this response reaches the browser before the process
-    # exits, rather than the request dying mid-flight.
-    def _relaunch_and_quit() -> None:
-        time.sleep(1)
-        try:
-            subprocess.Popen(["open", str(app_path)])
-        except OSError:
-            pass  # the new bundle is in place regardless; the user can open it by hand
-        time.sleep(2)
+    # Relaunch is handed to a detached shell that WAITS FOR THIS PROCESS TO
+    # EXIT before opening the new app, rather than opening it and hoping.
+    #
+    # Launching it while this process is still alive does not work: we still
+    # hold port 8000, so the new copy's own startup check finds a live server,
+    # concludes Sentra is already running, opens a browser at it and exits
+    # immediately — leaving nothing running once this process then quits. An
+    # app that terminates a moment after launch is also exactly what makes
+    # macOS report "The application "Sentra" is not open anymore", which is
+    # how this surfaced to the operator rather than as anything about updates.
+    #
+    # It waits on the PORT rather than on this pid, because the port is the
+    # actual precondition — the new copy only misbehaves if it finds a live
+    # server on 8000. Polling the pid instead looked equivalent and is not:
+    # `kill -0` succeeds on a dead-but-unreaped zombie, so it can report a
+    # long-gone process as alive and stall until the timeout. Verified both
+    # ways before choosing this one. Bounded so an unrelated program sitting
+    # on 8000 delays the relaunch rather than cancelling it.
+    quoted_app = shlex.quote(str(app_path))
+    relaunch = (
+        f"for _ in $(seq 1 100); do "
+        f"  /usr/bin/nc -z 127.0.0.1 {APP_PORT} >/dev/null 2>&1 || break; "
+        f"  sleep 0.2; "
+        f"done; "
+        f"sleep 0.5; "
+        f"exec /usr/bin/open {quoted_app}"
+    )
+    try:
+        subprocess.Popen(
+            ["/bin/sh", "-c", relaunch],
+            start_new_session=True,  # outlives this process, which is the point
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass  # the new bundle is in place regardless; the user can open it by hand
+
+    # Short delay so this response reaches the browser before the process goes,
+    # rather than the request dying mid-flight.
+    def _quit_for_relaunch() -> None:
+        time.sleep(1.5)
         os._exit(0)
 
-    threading.Thread(target=_relaunch_and_quit, name="sentra-quit-mac", daemon=True).start()
+    threading.Thread(target=_quit_for_relaunch, name="sentra-quit-mac", daemon=True).start()
     return state()
 
 

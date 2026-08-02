@@ -81,6 +81,17 @@ if not POSE_WEIGHTS.is_file():
         "Without it fight detection silently disables itself.\n"
     )
 
+# The face --selftest recognises to prove this build works. A missing fixture
+# fails the build rather than quietly weakening the only gate standing between
+# a silently-broken bundle and a customer's machine.
+SELFTEST_FACE = PROJECT_ROOT / "tests" / "fixtures" / "selftest_face.jpg"
+if not SELFTEST_FACE.is_file():
+    raise SystemExit(
+        f"\nERROR: self-test face image not found at:\n    {SELFTEST_FACE}\n\n"
+        "--selftest needs it to prove face recognition actually works in the\n"
+        "built bundle. Without it the build ships unverified.\n"
+    )
+
 # --- Bundled data ---------------------------------------------------------
 
 datas = [
@@ -89,6 +100,10 @@ datas = [
     (str(POSE_WEIGHTS), "Formal_Code"),
     (str(BUFFALO), "insightface/models/buffalo_l"),
     (str(BUILD_INFO), "."),
+    # 14KB synthetic face --selftest runs through the full recognition
+    # pipeline. Bundled deliberately: every check that did not put a real face
+    # through model.get() passed on builds that could not recognise anyone.
+    (str(SELFTEST_FACE), "tests/fixtures"),
 ]
 
 datas += collect_data_files("ultralytics")
@@ -227,6 +242,17 @@ a = Analysis(
     # Before adding anything here: run `Sentra.app/Contents/MacOS/Sentra
     # --selftest` on the built bundle. The build script does this and fails on
     # a non-zero exit, which is what stops this mistake shipping again.
+    #
+    # polars (added 2026-08-02, ~184MB via its native `_polars_runtime_32`
+    # backend): ultralytics depends on it, but every reference in its source
+    # is a function-local import inside training-results CSV export and
+    # results plotting — never inference. Verified, not assumed, following
+    # the same rule as the matplotlib/torch.testing case above: blocked
+    # `import polars` outright and ran Sentra's actual FightDetector pipeline
+    # (load_pose_model, detect_people, analyze_frame — the real
+    # anomaly_detection.py code path, not a synthetic call) end to end with
+    # no error. Sentra never trains a model, so the only code that needs
+    # polars is code Sentra never reaches.
     excludes=[
         "tkinter",
         "PyQt5",
@@ -234,6 +260,7 @@ a = Analysis(
         "notebook",
         "IPython",
         "pandas",
+        "polars",
     ],
     noarchive=False,
     optimize=0,

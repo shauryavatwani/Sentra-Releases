@@ -5,6 +5,34 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.5
+
+Makes updating on the Mac actually work end to end, and cuts about 180 MB off
+the download on both platforms.
+
+- **Fixed: updating on a Mac left Sentra not running, and macOS then said
+  "Sentra is not open anymore".** The new copy was being launched a moment
+  before the old one had finished shutting down, so it found the old one still
+  holding the dashboard, assumed Sentra was already running, and quit straight
+  away — leaving nothing running at all. The relaunch now waits for the old
+  copy to fully release the dashboard first.
+- **Fixed: updating on a Mac left the old camera engine running.** It kept hold
+  of the camera after the update, so the new copy could not connect to it. The
+  engine is now stopped properly as part of installing.
+- **Fixed: Sentra failing to start on a Mac showed nothing at all.** Because it
+  runs in the background with no window there, a startup problem — most often
+  another program already using port 8000 — produced no message anywhere.
+  Sentra now shows a real dialog explaining what happened, as it already did
+  on Windows.
+- **Smaller download.** Removed a large data library (~180 MB) that came in
+  with the fight-detection package but is only ever used for training models,
+  which Sentra never does. Verified by running the full detection pipeline
+  without it.
+- Every build must now recognise an actual face before it is allowed to ship.
+  The check runs a real face through the complete recognition pipeline inside
+  the finished app; previous versions only checked that the model files were
+  present, which is how a build that could not recognise anyone shipped twice.
+
 ## 1.0.4
 
 Fixes face recognition not working at all — on every installed copy of

@@ -138,6 +138,25 @@ def insightface_root() -> Path:
     return Path.home() / ".insightface"
 
 
+def selftest_face_image() -> Path:
+    """A face image bundled purely so ``--selftest`` can prove recognition works.
+
+    Deliberately a **synthetic, AI-generated** face, not a photograph of any
+    real person: this ships inside a public installer and a public repo, so a
+    real enrolment photo here would be a privacy problem regardless of how
+    convenient it was. It is never enrolled, never logged, and never leaves the
+    self-test.
+
+    It exists because every cheaper check for "can this build recognise a face"
+    turned out to pass on builds that could not. See ``run_selftest`` in
+    sentra_app.py for what specifically got through.
+    """
+    return _first_existing(
+        RESOURCE_ROOT / "tests" / "fixtures" / "selftest_face.jpg",
+        RESOURCE_ROOT / "selftest_face.jpg",
+    )
+
+
 def onvif_wsdl_dir() -> Path | None:
     """Directory holding the ONVIF WSDL files, or None to accept the default.
 
