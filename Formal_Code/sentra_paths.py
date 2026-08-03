@@ -86,6 +86,7 @@ RUN_LOGS_DIR = DATA_ROOT / ".run_logs"
 DETECTIONS_DB = DATABASE_DIR / "detections.db"
 FACE_EMBEDDINGS_FILE = DATABASE_DIR / "face_embeddings.pkl"
 CAMERA_CONFIG_FILE = DATABASE_DIR / "camera_config.json"
+ACCOUNTS_FILE = DATABASE_DIR / "accounts.json"
 
 # Written by the engine at startup, read by the backend's restart endpoint.
 # A recorded pid is what lets restart work without `pkill`, which is a

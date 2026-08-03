@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentra — Update required</title>
+<style>
+  :root {
+    --bg: #F5F5F7;
+    --panel: #FFFFFF;
+    --line: rgba(0,0,0,0.08);
+    --text: #1D1D1F;
+    --text-dim: #6E6E73;
+    --text-faint: #A1A1A6;
+    --blue: #0071E3;
+    --blue-hover: #0077ED;
+    --red: #FF3B30;
+    --red-bg: #FFF1F0;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg, #FBFBFD 0%, #F0F0F3 100%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    background: var(--panel);
+    border-radius: 20px;
+    padding: 40px 36px 32px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 24px 48px rgba(0,0,0,0.08);
+  }
+  .brand-row { display: flex; flex-direction: column; align-items: center; margin-bottom: 26px; }
+  .brand-mark {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, #FF3B30, #FF7A70);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+    box-shadow: 0 6px 16px rgba(255,59,48,0.28);
+  }
+  .brand-mark svg { width: 22px; height: 22px; }
+  .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+  .brand-sub { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+
+  h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; margin: 0 0 10px; text-align: center; }
+  p { font-size: 14px; color: var(--text-dim); line-height: 1.6; margin: 0 0 14px; text-align: center; }
+
+  .versions {
+    background: #F5F5F7; border-radius: 12px; padding: 14px 16px;
+    font-size: 13px; color: var(--text-dim); margin: 18px 0;
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .versions b { color: var(--text); font-weight: 650; }
+
+  .note {
+    background: var(--red-bg); color: var(--red); border-radius: 10px;
+    font-size: 13px; padding: 11px 14px; margin-bottom: 16px; font-weight: 500; line-height: 1.55;
+  }
+  .ok-note {
+    background: #F5F5F7; color: var(--text-dim); border-radius: 10px;
+    font-size: 12.5px; padding: 11px 14px; line-height: 1.55; margin-top: 16px;
+  }
+
+  button {
+    width: 100%; background: var(--blue); color: #fff; border: none;
+    border-radius: 980px; padding: 13px 0; font-weight: 600; font-size: 15px;
+    cursor: pointer; font-family: inherit;
+    transition: background 0.15s, transform 0.1s;
+  }
+  button:hover { background: var(--blue-hover); }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .progress-track { height: 5px; border-radius: 999px; background: #E8E8ED; overflow: hidden; margin-top: 14px; display: none; }
+  .progress-fill { height: 100%; background: var(--blue); border-radius: 999px; width: 0%; transition: width 0.25s ease; }
+  #status { font-size: 13px; color: var(--text-dim); text-align: center; margin-top: 14px; line-height: 1.55; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand-row">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        </svg>
+      </div>
+      <div class="brand-name">Sentra</div>
+      <div class="brand-sub">CCTV Intelligence</div>
+    </div>
+
+    <h1>This version is no longer supported</h1>
+    <p>The dashboard is unavailable on this version. Install the new version to continue.</p>
+
+    <div class="versions">
+      <span>Installed <b id="current-version">—</b></span>
+      <span>Required <b id="min-version">—</b></span>
+    </div>
+
+    <div class="note" id="note">
+      Live monitoring, visitor passes, person search and the rest of the dashboard are
+      unavailable until Sentra is updated.
+    </div>
+
+    <button id="action-btn" onclick="primaryAction()">Checking…</button>
+    <div class="progress-track" id="progress"><div class="progress-fill" id="progress-fill"></div></div>
+    <div id="status"></div>
+
+    <div class="ok-note">
+      Cameras and face recognition are still running in the background, and nothing has been
+      deleted — detections, registered people, visitor records and camera settings all carry
+      across the update untouched.
+    </div>
+  </div>
+
+<script>
+// This page is served instead of the dashboard once the update feed retires
+// this version. The update endpoints are deliberately the only ones left
+// open by the backend, so this page is the whole recovery path: without a
+// working Download/Install button here, a locked-out machine could not get
+// itself back. Everything below therefore talks only to /api/update/*.
+let state = null;
+
+function fmtBytes(n) {
+  if (!n) return '0 KB';
+  const kb = n / 1024, mb = kb / 1024, gb = mb / 1024;
+  if (gb >= 1) return gb.toFixed(2) + ' GB';
+  if (mb >= 100) return mb.toFixed(0) + ' MB';
+  if (mb >= 1) return mb.toFixed(1) + ' MB';
+  return Math.max(1, Math.round(kb)) + ' KB';
+}
+
+// Installing still requires an admin session — the lockout does not lower
+// that bar. Sign-in stays open precisely so this page can reach it; /
+// serves this page again afterwards, so the round trip lands back here.
+async function poll() {
+  try {
+    const res = await fetch('/api/update/state');
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    if (!res.ok) return;
+    state = await res.json();
+    render();
+  } catch (e) { /* transient; the next tick retries */ }
+}
+
+async function post(path) {
+  const btn = document.getElementById('action-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(path, { method: 'POST' });
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    if (res.ok) { state = await res.json(); render(); }
+  } catch (e) { /* render() re-enables from the polled state */ }
+}
+
+function primaryAction() {
+  if (!state) return;
+  if (state.status === 'ready') post('/api/update/install');
+  else if (state.status === 'available' || state.status === 'error' || state.status === 'up_to_date') {
+    post(state.status === 'available' ? '/api/update/download' : '/api/update/check');
+  }
+}
+
+function render() {
+  const s = state;
+  if (!s) return;
+
+  document.getElementById('current-version').textContent = s.current_version || '—';
+  document.getElementById('min-version').textContent = s.min_supported_version || '—';
+
+  const btn = document.getElementById('action-btn');
+  const prog = document.getElementById('progress');
+  const fill = document.getElementById('progress-fill');
+  const status = document.getElementById('status');
+
+  prog.style.display = s.status === 'downloading' ? 'block' : 'none';
+  fill.style.width = Math.round((s.progress || 0) * 100) + '%';
+
+  btn.disabled = false;
+  if (s.status === 'downloading') {
+    btn.disabled = true;
+    btn.textContent = 'Downloading…';
+    status.textContent = `${fmtBytes(s.downloaded)}${s.size ? ' of ' + fmtBytes(s.size) : ''}`;
+  } else if (s.status === 'ready') {
+    btn.textContent = 'Install and restart';
+    status.textContent = s.supported
+      ? 'Sentra will close and reopen automatically.'
+      : 'Automatic installation is unavailable on this platform — install the downloaded file by hand.';
+  } else if (s.status === 'installing') {
+    btn.disabled = true;
+    btn.textContent = 'Installing…';
+    status.textContent = 'Sentra will close and reopen shortly.';
+  } else if (s.status === 'available') {
+    btn.textContent = 'Download update';
+    status.textContent = s.latest_version
+      ? `Version ${s.latest_version} is available${s.size ? ' — ' + fmtBytes(s.size) : ''}.`
+      : '';
+  } else if (s.status === 'checking') {
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    status.textContent = '';
+  } else {
+    btn.textContent = 'Check for updates';
+    status.textContent = s.error || '';
+  }
+
+  if (s.error && s.status !== 'error') status.textContent = s.error;
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

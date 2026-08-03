@@ -23,8 +23,19 @@ import sentra_paths
 # --- Identity ---------------------------------------------------------------
 
 APP_NAME = "Sentra"
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 PUBLISHER = "Delhi Public School Bangalore East"
+
+# The retirement floor published in the release manifest: a client running
+# below this is locked out of its dashboard until it updates (see the lockout
+# middleware in backend_v2/main.py and `min_supported_version` in updater.py).
+#
+# Raise this only when a version genuinely must stop being usable — it is a
+# lockout, not a nag. It cannot apply retroactively: 1.0.0–1.0.5 shipped
+# without any code that reads this field, so they ignore it entirely. It first
+# bites on builds from 1.0.6 onward, which is why it starts at 1.0.6 rather
+# than at anything older.
+MIN_SUPPORTED_VERSION = "1.0.6"
 
 # Where the update manifest lives by default. Deliberately just a URL to a JSON
 # file: GitHub Releases, S3, R2, Azure Blob and a plain nginx box all serve one
@@ -118,6 +129,16 @@ def is_newer(candidate: str, current: str = VERSION) -> bool:
     a += (0,) * (width - len(a))
     b += (0,) * (width - len(b))
     return a > b
+
+
+def is_older(floor: str, current: str = VERSION) -> bool:
+    """True when ``current`` is strictly below ``floor``.
+
+    Backs the ``min_supported_version`` lockout in updater.py. Not simply
+    ``not is_newer(...)``: that would also be true when the two are equal, and
+    a client running exactly the minimum supported version must stay usable.
+    """
+    return is_newer(floor, current)
 
 
 def describe() -> dict:

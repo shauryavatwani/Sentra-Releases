@@ -44,6 +44,7 @@ import visitor_service
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "Formal_Code"))
+import accounts_store  # noqa: E402
 import camera_store  # noqa: E402  (path must be set up first)
 import data_pack  # noqa: E402
 import onvif_discovery  # noqa: E402
@@ -54,10 +55,12 @@ import visitor_store  # noqa: E402
 
 app = FastAPI(title="Sentra Backend")
 
-# --- Auth (demo-grade: fixed credentials, in-memory sessions) --------------
+# --- Auth (demo-grade: fixed-shape credentials, in-memory sessions) --------
 # This gates a local pitch demo, not a production deployment — see
 # known_issues memory for what a real login would still need (password
-# hashing, persistent sessions, etc.).
+# hashing, persistent sessions, etc.). Accounts themselves are persisted in
+# Database/accounts.json (see Formal_Code/accounts_store.py) rather than kept
+# as a hardcoded dict, so a password change survives a restart and an update.
 #
 # Two roles exist because the Temporary Pass feature genuinely needs them: the
 # guard on the gate raises a visit request, and someone in management decides
@@ -66,16 +69,8 @@ app = FastAPI(title="Sentra Backend")
 #   admin — full access, including approving/extending/ending visits
 #   guard — raises visit requests and sees who is on the premises, but every
 #           approval control is refused by the API, not merely hidden in the UI
-ROLE_ADMIN = "admin"
-ROLE_GUARD = "guard"
-
-ACCOUNTS = {
-    # The shared demo login the pitch runs on. Deliberately an admin so a judge
-    # picking it up is never blocked mid-demo.
-    "sharktanktest": {"password": "demo", "role": ROLE_ADMIN, "display": "Demo Account"},
-    "shauryavatwani": {"password": "shauryav", "role": ROLE_ADMIN, "display": "Shaurya Vatwani"},
-    "guard": {"password": "testing", "role": ROLE_GUARD, "display": "Security Guard"},
-}
+ROLE_ADMIN = accounts_store.ROLE_ADMIN
+ROLE_GUARD = accounts_store.ROLE_GUARD
 
 SESSION_COOKIE = "sentra_session"
 
@@ -109,9 +104,56 @@ def require_admin(request: Request) -> dict:
     return session
 
 
+# --- Version lockout --------------------------------------------------------
+# When the update feed publishes a `min_supported_version` above this build,
+# the dashboard stops being served and this page takes its place. Deliberately
+# enforced in the backend rather than the UI: an update banner, however loud,
+# is a suggestion, and the whole point of retiring a version is that it stops
+# being a choice.
+#
+# Three things stay reachable, because without them a locked-out machine could
+# not get itself back:
+#   * /api/update/*  — check, download and install the new version
+#   * login/logout   — installing requires an admin session (require_admin),
+#                      so sign-in cannot be part of what gets locked out
+#   * /api/version   — what the lockout page reports as installed
+#
+# The engine is untouched: it connects over /ws/engine, and this middleware
+# only sees HTTP, so cameras, recognition and detection logging carry on
+# through a lockout exactly as before.
+UNSUPPORTED_PATH = sentra_paths.app_dir() / "unsupported.html"
+
+_LOCKOUT_ALLOWED_EXACT = frozenset(
+    {"/login", "/api/login", "/api/logout", "/api/me", "/api/version"}
+)
+
+
+def _lockout_allows(path: str) -> bool:
+    return path in _LOCKOUT_ALLOWED_EXACT or path.startswith("/api/update/")
+
+
+def is_version_locked_out() -> bool:
+    """True once a check has positively established this build is retired.
+
+    Reads the updater's own state rather than re-fetching: a machine that
+    cannot reach the feed has `unsupported` False and stays fully usable, so
+    losing network access can never lock anyone out on its own.
+    """
+    return bool(updater.state().get("unsupported"))
+
+
 @app.middleware("http")
 async def require_login(request: Request, call_next):
     path = request.url.path
+
+    if is_version_locked_out() and not _lockout_allows(path):
+        if path.startswith("/api/"):
+            return JSONResponse(
+                {"detail": "This version of Sentra is no longer supported. Install the new version."},
+                status_code=403,
+            )
+        return FileResponse(UNSUPPORTED_PATH, status_code=403)
+
     # Only /api/* routes are gated here; "/" enforces its own redirect
     # below so browsers get a proper redirect instead of raw JSON.
     if path.startswith("/api/") and path != "/api/login" and not is_authenticated(request):
@@ -126,7 +168,7 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/login")
 def login(payload: LoginRequest):
-    account = ACCOUNTS.get(payload.username.strip().lower())
+    account = accounts_store.get_account(payload.username)
     # secrets.compare_digest keeps the check constant-time. The credentials are
     # printed on the login page, so this buys nothing here — it is simply the
     # right shape for the day these stop being demo accounts.
@@ -162,6 +204,40 @@ def whoami(request: Request):
     if session is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return session
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/change-password")
+def change_password(payload: ChangePasswordRequest, request: Request):
+    """Let the signed-in account change its own password.
+
+    Requires the current password (constant-time compared, same reasoning as
+    login) so a hijacked but still-open session can't be used to lock the real
+    owner out permanently. Persisted via accounts_store, so it survives a
+    restart and an update.
+    """
+    session = session_for(request)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    account = accounts_store.get_account(session["username"])
+    if account is None or not secrets.compare_digest(payload.current_password, account["password"]):
+        # 403, not 401: the session is perfectly valid, only this one field is
+        # wrong. The dashboard treats any 401 as "your session lapsed" and
+        # bounces to /login, so answering 401 here would sign the operator out
+        # over a typo and lose whatever they were doing.
+        raise HTTPException(status_code=403, detail="Current password is incorrect.")
+
+    new_password = payload.new_password.strip()
+    if len(new_password) < 4:
+        raise HTTPException(status_code=400, detail="New password must be at least 4 characters.")
+
+    accounts_store.set_password(session["username"], new_password)
+    return {"ok": True}
 
 
 @app.get("/login")

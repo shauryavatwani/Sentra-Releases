@@ -35,6 +35,7 @@ import glob
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -44,12 +45,24 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_URL = "https://github.com/shauryavatwani/Sentra-Releases/releases/latest/download"
 
 
-def read_version() -> str:
+def _read_constant(name: str, required: bool = True) -> str:
     source = (PROJECT_ROOT / "Formal_Code" / "sentra_version.py").read_text(encoding="utf-8")
-    match = re.search(r'^VERSION\s*=\s*"([^"]+)"', source, re.MULTILINE)
+    match = re.search(rf'^{name}\s*=\s*"([^"]*)"', source, re.MULTILINE)
     if not match:
-        raise SystemExit("Could not read VERSION from Formal_Code/sentra_version.py")
+        if required:
+            raise SystemExit(f"Could not read {name} from Formal_Code/sentra_version.py")
+        return ""
     return match.group(1)
+
+
+def read_version() -> str:
+    return _read_constant("VERSION")
+
+
+def read_min_supported_version() -> str:
+    """The retirement floor, so the manifest and the app can never disagree
+    about it — same reason the version itself is read from source."""
+    return _read_constant("MIN_SUPPORTED_VERSION", required=False)
 
 
 def _changelog_section(version: str) -> str:
@@ -129,6 +142,18 @@ def main() -> int:
         default=str(PROJECT_ROOT / "windows" / "output"),
         help="directory to write version.json / release_notes.md into",
     )
+    parser.add_argument(
+        "--mandatory",
+        action="store_true",
+        help="mark this update as mandatory (the client's banner cannot be dismissed)",
+    )
+    parser.add_argument(
+        "--min-supported-version",
+        default=None,
+        help="retirement floor: clients older than this are locked out of their "
+        "dashboard until they update. Defaults to MIN_SUPPORTED_VERSION in "
+        "sentra_version.py; pass an empty string to retire nothing.",
+    )
     args = parser.parse_args()
 
     installer = Path(args.installer)
@@ -143,7 +168,27 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     base_url = args.base_url.rstrip("/")
     version = read_version()
+    min_supported = (
+        read_min_supported_version()
+        if args.min_supported_version is None
+        else args.min_supported_version
+    ).strip()
     build_date = __import__("datetime").date.today().isoformat()
+
+    if min_supported:
+        # A floor above the version being published would lock out the very
+        # release that carries it — every client, including a freshly
+        # installed one, would be below the floor with nothing newer to
+        # install. Caught here rather than after it reaches every machine.
+        sys.path.insert(0, str(PROJECT_ROOT / "Formal_Code"))
+        import sentra_version  # noqa: E402
+
+        if sentra_version.is_newer(min_supported, version):
+            raise SystemExit(
+                f"min_supported_version ({min_supported}) is newer than the version "
+                f"being released ({version}). That would lock out every client, "
+                "including this release."
+            )
 
     # Two copies of the Windows installer's bytes, published under two names:
     #
@@ -200,7 +245,10 @@ def main() -> int:
         "build_date": build_date,
         "notes": "",
         "notes_url": f"{base_url}/release_notes.md",
-        "mandatory": False,
+        "mandatory": args.mandatory,
+        # Only emitted when actually set: an empty string would read as a
+        # version to compare against rather than "nothing is retired".
+        **({"min_supported_version": min_supported} if min_supported else {}),
         "platforms": platforms,
     }
 

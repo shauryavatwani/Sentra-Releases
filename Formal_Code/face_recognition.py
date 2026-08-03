@@ -108,9 +108,25 @@ ENROLLED_RELOAD_SECONDS = 5
 
 
 class LatestFrameStream:
-    """Continuously reads RTSP frames and keeps only the newest one."""
+    """Continuously reads RTSP frames and keeps only the newest one.
+
+    Reconnects on its own: once an RTSP session actually dies (camera reboot,
+    the network path dropping and coming back, a Wi-Fi blip), `.read()` on the
+    same `cv2.VideoCapture` just keeps returning `ok=False` forever — FFmpeg
+    does not silently re-establish the session underneath it. Without a
+    reconnect, a camera that comes back online would stay stuck reporting
+    offline until the whole engine was restarted by hand. So a sustained run
+    of failed reads triggers a full close+reopen of the capture, not just
+    another read.
+    """
+
+    # ~1.5s of failed reads at the 0.05s poll below before trying a reopen —
+    # long enough that one dropped frame doesn't thrash the connection.
+    RECONNECT_AFTER_FAILURES = 30
+    RECONNECT_BACKOFF_SECONDS = 2.0
 
     def __init__(self, url: str) -> None:
+        self._url = url
         self._capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
         self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self._frame: np.ndarray | None = None
@@ -125,12 +141,28 @@ class LatestFrameStream:
         self._thread = threading.Thread(target=self._update, daemon=True)
         self._thread.start()
 
+    def _reopen(self) -> None:
+        try:
+            self._capture.release()
+        except Exception:
+            pass
+        self._capture = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
+        self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
     def _update(self) -> None:
+        consecutive_failures = 0
         while self._running:
             ok, frame = self._capture.read()
             if not ok:
-                time.sleep(0.05)
+                consecutive_failures += 1
+                if consecutive_failures >= self.RECONNECT_AFTER_FAILURES:
+                    self._reopen()
+                    consecutive_failures = 0
+                    time.sleep(self.RECONNECT_BACKOFF_SECONDS)
+                else:
+                    time.sleep(0.05)
                 continue
+            consecutive_failures = 0
             with self._lock:
                 self._frame = frame
 

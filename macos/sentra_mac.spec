@@ -97,6 +97,7 @@ if not SELFTEST_FACE.is_file():
 datas = [
     (str(PROJECT_ROOT / "backend_v2" / "dashboard.html"), "backend_v2"),
     (str(PROJECT_ROOT / "backend_v2" / "login.html"), "backend_v2"),
+    (str(PROJECT_ROOT / "backend_v2" / "unsupported.html"), "backend_v2"),
     (str(POSE_WEIGHTS), "Formal_Code"),
     (str(BUFFALO), "insightface/models/buffalo_l"),
     (str(BUILD_INFO), "."),

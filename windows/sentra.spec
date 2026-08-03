@@ -112,6 +112,7 @@ datas = [
     # Dashboard + login are served straight off disk by main.py.
     (str(PROJECT_ROOT / "backend_v2" / "dashboard.html"), "backend_v2"),
     (str(PROJECT_ROOT / "backend_v2" / "login.html"), "backend_v2"),
+    (str(PROJECT_ROOT / "backend_v2" / "unsupported.html"), "backend_v2"),
     # Build stamp, read by sentra_version.py at runtime. Lands at the resource
     # root so RESOURCE_ROOT / "build_info.json" resolves in both build shapes.
     (str(BUILD_INFO), "."),

@@ -5,6 +5,34 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.6
+
+Adds accounts for the rest of the team, lets anyone change their own password,
+and fixes a camera that could stay stuck on "Offline" after the network came
+back.
+
+- **New: change your own password.** Settings now has a *Change your password*
+  panel. It asks for your current password first, and the change is saved
+  properly — it survives restarting Sentra and installing an update.
+- **New team logins.** Three more management accounts have been added.
+- **Fixed: a camera could stay stuck on "Offline" after coming back.** If the
+  network dropped, the camera rebooted, or Wi-Fi blipped, Sentra kept trying to
+  read from a connection that was already dead and never re-established it — so
+  a camera that was genuinely back online still showed as Offline until Sentra
+  was restarted by hand. It now reconnects on its own.
+- **Fixed: re-issuing a pass for a visitor whose photo had been deleted.**
+  Visitor photos are deleted automatically a while after a pass ends. Re-issuing
+  a pass after that point would have re-admitted someone with no photo left to
+  check them against, so it is now refused with an explanation, and the button
+  is replaced by *Photo expired*. Re-issuing still works normally while the
+  photo is there.
+- **Retiring old versions.** Sentra can now be told that a version is no longer
+  supported. On a version that has been retired, the dashboard is replaced by a
+  page explaining that an update is required — cameras and face recognition keep
+  running in the background, and no data is touched. This takes effect for
+  versions from 1.0.6 onward; it cannot be applied to versions already
+  installed before this release.
+
 ## 1.0.5
 
 Makes updating on the Mac actually work end to end, and cuts about 180 MB off

@@ -473,6 +473,17 @@ def extend_visitor(visitor_id: str, extra_minutes: int, extended_by: str) -> dic
             raise KeyError(visitor_id)
         if row["status"] != STATUS_APPROVED:
             raise ValueError("Only an approved visit can be extended.")
+        if not row["photo_file"]:
+            # Same call path handles both "Extend" (still active — the photo
+            # is always present, since purge only runs after expiry) and
+            # "Re-issue" (already finished — the gate photo may have aged out
+            # via purge_expired_photos). Once the photo is gone there is
+            # nothing left to re-verify this person against, so re-issuing
+            # must raise a fresh visit request instead of reviving this one.
+            raise ValueError(
+                "This visitor's gate photo has been deleted after the retention "
+                "window closed. Raise a new visit request instead of re-issuing this one."
+            )
 
         now = _now()
         current_expiry = parse_time(row["expires_at"]) or now

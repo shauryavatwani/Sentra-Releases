@@ -292,6 +292,10 @@
     background: var(--blue-tint); border: 1px solid rgba(0,113,227,0.22);
   }
   .update-bar.shown { display: flex; }
+  /* A mandatory update (this version is unsupported) reads as a warning, not
+     a routine notice — same red used by the alert banner, not a new color. */
+  .update-bar.mandatory { background: var(--red-tint); border-color: var(--red); }
+  .update-bar.mandatory .u-icon { color: var(--red); }
   .update-bar .u-icon { width: 20px; height: 20px; color: var(--blue); flex-shrink: 0; }
   .update-bar .u-text { flex: 1; font-size: 13.5px; color: var(--text); line-height: 1.5; }
   .update-bar .u-text b { font-weight: 600; }
@@ -1085,6 +1089,26 @@
         </div>
 
         <div class="panel" style="margin-top:18px">
+          <div class="panel-header"><div class="panel-title">Change your password</div></div>
+          <div class="register-form" style="padding:20px 24px">
+            <div>
+              <label class="field-label">Current password</label>
+              <input type="password" id="pw-current" autocomplete="current-password" />
+            </div>
+            <div>
+              <label class="field-label">New password</label>
+              <input type="password" id="pw-new" autocomplete="new-password" />
+            </div>
+            <div>
+              <label class="field-label">Confirm new password</label>
+              <input type="password" id="pw-confirm" autocomplete="new-password" />
+            </div>
+            <button class="btn-primary" id="pw-submit" onclick="submitPasswordChange()">Update password</button>
+            <div id="pw-msg"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:18px">
           <div class="panel-header"><div class="panel-title">Software updates</div></div>
           <div style="padding:20px 24px">
             <div style="font-size:14px; color:var(--text-dim); line-height:1.6; margin-bottom:16px">
@@ -1194,6 +1218,45 @@ document.querySelectorAll('.nav-item').forEach(item => {
   });
 });
 
+// ---------- Change password ----------
+async function submitPasswordChange() {
+  const currentInput = document.getElementById('pw-current');
+  const newInput = document.getElementById('pw-new');
+  const confirmInput = document.getElementById('pw-confirm');
+  const msg = document.getElementById('pw-msg');
+  const submitBtn = document.getElementById('pw-submit');
+
+  const current_password = currentInput.value;
+  const new_password = newInput.value;
+
+  if (!current_password) { msg.innerHTML = '<div class="form-msg error">Enter your current password.</div>'; return; }
+  if (new_password.length < 4) { msg.innerHTML = '<div class="form-msg error">New password must be at least 4 characters.</div>'; return; }
+  if (new_password !== confirmInput.value) { msg.innerHTML = '<div class="form-msg error">New password and confirmation do not match.</div>'; return; }
+
+  submitBtn.disabled = true;
+  msg.innerHTML = '';
+  try {
+    const res = await fetch('/api/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      msg.innerHTML = `<div class="form-msg error">${esc(data.detail || 'Could not update password.')}</div>`;
+    } else {
+      msg.innerHTML = '<div class="form-msg success">Password updated.</div>';
+      currentInput.value = '';
+      newInput.value = '';
+      confirmInput.value = '';
+    }
+  } catch (e) {
+    msg.innerHTML = '<div class="form-msg error">Could not reach the server.</div>';
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
 // ---------- Version and updates ----------
 // The backend checks on its own shortly after launch; this polls the result
 // rather than driving the check, so the notification appears whether the
@@ -1290,28 +1353,40 @@ function renderUpdate() {
 
   // --- The bar: only the states an operator can act on -------------------
   const actionable = ['available', 'downloading', 'ready'].includes(s.status);
+  // A mandatory update means this running version is no longer supported —
+  // it must stay in front of the operator, so a prior "Later"/"Dismiss"
+  // click (or one from earlier this session, before the manifest turned
+  // mandatory) never hides it, and there is no dismiss control going forward.
+  const mandatory = !!s.mandatory && actionable;
   const dismissed = s.latest_version && sessionStorage.getItem(dismissKey(s.latest_version));
-  bar.classList.toggle('shown', actionable && !dismissed);
+  bar.classList.toggle('shown', actionable && (mandatory || !dismissed));
+  bar.classList.toggle('mandatory', mandatory);
   navDot.style.display = actionable ? '' : 'none';
 
   barProg.style.display = s.status === 'downloading' ? '' : 'none';
   barFill.style.width = pct + '%';
 
+  const blunt = 'This version is no longer supported — install the new version.';
+
   if (s.status === 'available') {
-    barText.innerHTML = `<b>Sentra ${ver} is available.</b> ${s.size ? 'Download is ' + fmtBytes(s.size) + '.' : ''}`;
+    barText.innerHTML = mandatory
+      ? `<b>${blunt}</b> ${s.size ? 'Download is ' + fmtBytes(s.size) + '.' : ''}`
+      : `<b>Sentra ${ver} is available.</b> ${s.size ? 'Download is ' + fmtBytes(s.size) + '.' : ''}`;
     barActions.innerHTML = admin
       ? `<button class="update-pill" onclick="downloadUpdate(this)">Download</button>
-         <button class="update-ghost" onclick="dismissUpdate()">Later</button>`
-      : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`;
+         ${mandatory ? '' : '<button class="update-ghost" onclick="dismissUpdate()">Later</button>'}`
+      : (mandatory ? '' : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`);
   } else if (s.status === 'downloading') {
     barText.innerHTML = `<b>Downloading Sentra ${ver}…</b> ${fmtBytes(s.downloaded)}${s.size ? ' of ' + fmtBytes(s.size) : ''}`;
     barActions.innerHTML = '';
   } else if (s.status === 'ready') {
-    barText.innerHTML = `<b>Sentra ${ver} is ready to install.</b> Your data is kept.`;
+    barText.innerHTML = mandatory
+      ? `<b>${blunt}</b> Sentra ${ver} is ready to install — your data is kept.`
+      : `<b>Sentra ${ver} is ready to install.</b> Your data is kept.`;
     barActions.innerHTML = admin && s.supported
       ? `<button class="update-pill" onclick="installUpdate(this)">Install and restart</button>
-         <button class="update-ghost" onclick="dismissUpdate()">Later</button>`
-      : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`;
+         ${mandatory ? '' : '<button class="update-ghost" onclick="dismissUpdate()">Later</button>'}`
+      : (mandatory ? '' : `<button class="update-ghost" onclick="dismissUpdate()">Dismiss</button>`);
   }
 
   // --- The Settings panel: the whole truth, including errors -------------
@@ -2510,7 +2585,10 @@ function renderOnsiteList() {
         <div class="visitor-actions">
           ${tag}
           ${isAdmin() && v.state !== 'rejected'
-            ? `<button class="btn-secondary" onclick="extendVisitor('${v.id}')">Re-issue</button>` : ''}
+            ? (v.has_photo
+                ? `<button class="btn-secondary" onclick="extendVisitor('${v.id}')">Re-issue</button>`
+                : `<span class="visitor-meta" title="The gate photo was deleted after the retention window closed — raise a new visit request instead.">Photo expired</span>`)
+            : ''}
         </div>
       </div>`;
   }).join('');

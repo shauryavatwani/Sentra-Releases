@@ -54,6 +54,10 @@ Database/face_embeddings.pkl
 Database/face_embeddings.pkl.bak
 Database/camera_config.json
 Database/update_config.json
+# Login accounts, including changed passwords (Formal_Code/accounts_store.py).
+# The seed list lives in that module; this file is per-install state and must
+# never reach a public repo.
+Database/accounts.json
 
 # --- macOS ----------------------------------------------------------------
 .DS_Store

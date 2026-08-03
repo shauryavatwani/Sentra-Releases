@@ -18,6 +18,9 @@ Manifest schema (host this as ``version.json`` next to the installers)::
       "notes":      "Fixed the camera reconnect loop.",     # optional
       "notes_url":  "https://.../release_notes.md",         # optional
       "mandatory":  false,                # optional, styles the prompt louder
+      "min_supported_version": "1.0.6",   # optional retirement floor: a client
+                                          # below this is locked out of the
+                                          # dashboard, not merely nagged
       "platforms": {                      # one entry per platform this
         "win32":  {"url": "...", "sha256": "...", "size": ...},  # version's
         "darwin": {"url": "...", "sha256": "...", "size": ...}   # updater
@@ -92,6 +95,12 @@ _state: dict[str, Any] = {
     "notes_url": "",
     "release_date": "",
     "mandatory": False,
+    # The retirement floor published by the feed, and whether this running
+    # version is below it. `unsupported` is what gates the backend lockout —
+    # it stays False until a check actually says otherwise, so a machine that
+    # cannot reach the feed is never locked out by the failure itself.
+    "min_supported_version": "",
+    "unsupported": False,
     "size": 0,
     "downloaded": 0,
     "progress": 0.0,
@@ -254,12 +263,23 @@ def check(force: bool = False) -> dict:
         return state()
 
     newer = sentra_version.is_newer(version)
+
+    # min_supported_version is the retirement floor: a client below it is
+    # locked out by the backend (see backend_v2/main.py) rather than merely
+    # nagged. Absent from the manifest means "nothing is retired", which is
+    # what every manifest before this field meant and must keep meaning.
+    floor = str(manifest.get("min_supported_version", "")).strip()
+    unsupported = bool(floor) and sentra_version.is_older(floor)
     _set(
         latest_version=version,
         notes=str(manifest.get("notes", "")),
         notes_url=str(manifest.get("notes_url", "")),
         release_date=str(manifest.get("build_date", "")),
-        mandatory=bool(manifest.get("mandatory", False)),
+        # An unsupported version is mandatory whatever the flag says: the
+        # backend is about to stop serving the dashboard on it.
+        mandatory=bool(manifest.get("mandatory", False)) or unsupported,
+        min_supported_version=floor,
+        unsupported=unsupported,
         last_checked=time.time(),
         error="",
     )
