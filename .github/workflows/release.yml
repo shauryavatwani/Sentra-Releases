@@ -30,7 +30,35 @@ permissions:
   contents: write
 
 jobs:
+  # Runs before either build and gates both. Deliberately cheap — the anomaly
+  # detector needs nothing beyond numpy, so this finishes in seconds and fails
+  # the release long before ~40 minutes of packaging.
+  #
+  # It exists because the fight-detection constants shipped wrong twice (1.0.6
+  # alerted on hugs, 1.0.7 could not report a real fight at all) while CI was
+  # entirely green: the pipeline built and self-tested the bundle but never ran
+  # a single unit test, so nothing could have caught either. The suite now
+  # includes replays of real recorded camera measurements, and both historical
+  # regressions fail it — which is only worth anything if it actually runs.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # numpy <2 to match the runtime pin (see the build jobs below).
+      - name: Install test dependencies
+        run: python -m pip install "numpy<2"
+
+      - name: Fight detection — logic and real-measurement regressions
+        run: python tests/test_anomaly_detection.py
+
   windows:
+    needs: tests
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -139,6 +167,7 @@ jobs:
           retention-days: 30
 
   macos:
+    needs: tests
     # macos-14 and later are Apple Silicon. The .app is arm64-only: a
     # universal2 build would need every wheel to be universal2, and
     # torch/onnxruntime are not. An Intel Mac would need a macos-13 job.

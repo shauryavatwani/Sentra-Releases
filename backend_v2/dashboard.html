@@ -794,7 +794,7 @@
             <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); padding:12px 14px; border-radius:10px;">
               <div>
                 <div style="font-weight:600; font-size:13px;">Run AI detection</div>
-                <div class="field-hint" style="margin-top:2px;">Face recognition + fight detection on this camera.</div>
+                <div class="field-hint" style="margin-top:2px;">Face recognition + (beta) fight detection on this camera.</div>
               </div>
               <label class="switch"><input type="checkbox" id="cm-ai-enabled" checked /><span class="switch-track"></span></label>
             </div>
@@ -1001,7 +1001,7 @@
             </div>
             <div>
               <label class="field-label">Full name</label>
-              <input type="text" id="reg-name" placeholder="e.g. Dhaya" />
+              <input type="text" id="reg-name" placeholder="e.g. Shaurya Vatwani" />
             </div>
             <div>
               <label class="field-label">Photos (front / left / right recommended)</label>
@@ -1045,7 +1045,7 @@
       <div class="view-section" id="view-alerts">
         <div class="panel">
           <div class="panel-header">
-            <div class="panel-title">Smart alerts — physical altercation detection</div>
+            <div class="panel-title">Smart alerts — (beta) fight detection</div>
             <div class="live-tag" id="alerts-live-tag"><span class="dot"></span>Live</div>
           </div>
           <table>
@@ -1084,7 +1084,6 @@
             <dt>Version</dt><dd class="about-mono" id="about-version">—</dd>
             <dt>Build date</dt><dd class="about-mono" id="about-build-date">—</dd>
             <dt>Build channel</dt><dd id="about-channel">—</dd>
-            <dt>Licensed to</dt><dd id="about-publisher">—</dd>
           </dl>
         </div>
 
@@ -1269,7 +1268,6 @@ async function loadVersion() {
     const info = await (await fetch('/api/version')).json();
     document.getElementById('about-version').textContent = info.version;
     document.getElementById('about-build-date').textContent = info.build_date;
-    document.getElementById('about-publisher').textContent = info.publisher;
     document.getElementById('about-tagline').textContent = `CCTV Intelligence · Version ${info.version}`;
     document.getElementById('about-channel').textContent =
       info.channel === 'release' ? 'Release' : 'Running from source (development)';
@@ -1763,7 +1761,7 @@ function showAlertBanner(anomaly) {
   const people = (anomaly.persons_involved || [])
     .map(n => n === 'Unknown' ? 'Unknown person' : n).join(' and ');
 
-  const title = overstay ? 'Visitor pass expired' : 'Possible altercation detected';
+  const title = overstay ? 'Visitor pass expired' : '(beta) Possible altercation detected';
   const detail = overstay
     ? `${esc(people)} · ${formatDuration(anomaly.overstay_seconds || 0)} past their approved time · ${esc(anomaly.timestamp || '')}`
     : `${esc(people) || 'Unidentified people'} · ${Math.round((anomaly.confidence || 0) * 100)}% confidence · ${esc(anomaly.timestamp || '')}`;

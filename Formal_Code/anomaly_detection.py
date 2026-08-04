@@ -76,7 +76,27 @@ PROXIMITY_LIMIT = 1.4
 # Limb speed measured in body-heights per second, as path length rather than
 # net displacement — a punch that lands and retracts covers a lot of distance
 # but ends up back where it started, so net displacement would read as zero.
-SPEED_REFERENCE = 1.2
+#
+# The wrist speed a definite fight produces, and therefore the value that maps
+# real fighting onto a motion score near 1.0. MEASURED, not guessed
+# (2026-08-04, tools/measure_motion.py, live 640x360 RTSP camera at the
+# production 0.5s cadence, one person, ~30s per class):
+#
+#     behaviour                 median   p90     max
+#     standing/talking/gesturing  0.024   0.136   0.242
+#     throwing real punches       0.275   0.366   0.443
+#
+# This was 1.2 until that measurement, taken from *synthetic* idealised punch
+# kinematics. Real humans peak around 0.44, so every real motion was divided by
+# a reference roughly 3x too large and squashed into the bottom quarter of the
+# scale — real punching topped out at a motion score of 0.259 against a
+# MOTION_FLOOR of 0.45, i.e. **a genuine fight could not reach the threshold at
+# all, ever**. That is exactly what "1.0.7 stopped reporting real fights"
+# turned out to be. Note the raw signal was never the problem: 0.024 vs 0.275
+# separates the two classes by more than 10x. Only the normalisation was wrong.
+#
+# Re-measure with tools/measure_motion.py before changing this.
+SPEED_REFERENCE = 0.40
 
 # Per-segment movement below this (in body heights) is treated as zero when
 # summing wrist path length. YOLO keypoint estimates wobble by a couple of
@@ -118,13 +138,46 @@ FIGHT_THRESHOLD = 0.55      # confidence needed to consider the pair fighting
 # rather than leaving it as an emergent property of three numbers that a later
 # retune could quietly undo. A fight is a thing people do, not a way they stand.
 #
-# This is the knob to tune first if real fights are being missed — raise it to
-# suppress more false alarms, lower it to catch subtler scuffles. Set
-# SENTRA_ANOMALY_DEBUG=1 to log every scored pair with its components, which is
-# how you find the right value from real footage instead of guessing.
-MOTION_FLOOR = 0.45
+# Placed from the same real measurement as SPEED_REFERENCE above, in the gap
+# between the two behaviour classes rather than picked by eye. On the current
+# scale, with one person moving (the conservative one-sided-assault weighting,
+# 0.7 x speed):
+#
+#     benign p90    0.136 -> 0.238   comfortably below
+#     benign max    0.242 -> 0.424   a rare single sample can exceed it
+#     punch median  0.275 -> 0.481   clears it consistently
+#     punch p90     0.366 -> 0.641
+#
+# When both people are moving, as in an actual fight, the weighting is
+# (0.7*fast + 0.3*slow) and a mutual scuffle lands near 0.69 — well clear.
+# The occasional benign sample above the floor is absorbed by CONSECUTIVE_HITS,
+# which requires two evaluations in a row, and by the full confidence
+# threshold, which still needs proximity and contact alongside it.
+#
+# The previous value of 0.45 was unreachable by any real human (see
+# SPEED_REFERENCE). Re-measure with tools/measure_motion.py before changing it.
+MOTION_FLOOR = 0.35
 
-CONSECUTIVE_HITS = 2        # must score above threshold this many evaluations in a row
+# Must score above threshold this many evaluations in a row (~0.5s apart), so
+# this is 1.5s of *sustained* fight-like behaviour.
+#
+# This is what separates the two behaviour classes where a threshold alone
+# cannot. At their extremes the distributions overlap — a peak gesture reaches
+# motion 0.605 while the weakest real assault sits at 0.481 — so no value of
+# MOTION_FLOOR can divide them by magnitude. They differ in *duration* instead,
+# and measurement (2026-08-04) shows the gap is enormous:
+#
+#     benign gesturing  7 of 111 samples above the floor, but every one an
+#                       isolated spike — longest run 1 sample (0.5s)
+#     real punching     31 of 46 samples above, in runs of 21 and 10
+#                       (10.5s and 5.0s sustained)
+#
+# Benign behaviour never produced even two consecutive samples above the floor,
+# so 2 would already be safe; 3 is chosen to keep a full sample of margin
+# against behaviour not represented in that sample (enthusiastic waving, horseplay,
+# sport). The cost is 0.5s of extra latency on a fight that sustains for
+# seconds, which is a good trade for halving the false-alarm surface.
+CONSECUTIVE_HITS = 3
 PAIR_COOLDOWN_SECONDS = 15  # don't re-log the same pair more often than this
 HISTORY_LENGTH = 8          # motion samples kept per track
 STALE_TRACK_SECONDS = 3.0   # forget tracks not seen for this long
@@ -146,7 +199,25 @@ MIN_TRACK_SAMPLES = 3
 # A pair is only scored if both people have at least this many confident torso
 # keypoints. Below that the pose is too uncertain to reason about, and feeding
 # garbage coordinates into the distance maths invents alerts out of noise.
-MIN_TORSO_KEYPOINTS = 2
+#
+# One, not two, and the reason is that the four TORSO_POINTS are not equally
+# available. Measured on the real camera (2026-08-04, 76 person-samples):
+#
+#     L_shoulder  median conf 0.855   >= KEYPOINT_CONF in 100% of samples
+#     R_shoulder  median conf 0.929   >= KEYPOINT_CONF in 100%
+#     L_hip       median conf 0.030   >= KEYPOINT_CONF in   0%
+#     R_hip       median conf 0.061   >= KEYPOINT_CONF in   0%
+#
+# The hips are effectively never resolved from this camera's angle, so "2 of 4
+# torso points" silently meant "both shoulders, every frame". Turning sideways
+# or having one shoulder occluded — continuous during an actual fight — drops
+# the count to 1 and threw the pair out *before scoring*, which is why a real
+# fight produced 40 `GATED (torso_a=1)` events and no alert.
+#
+# Lowering KEYPOINT_CONF instead would be the wrong fix: a hip at confidence
+# 0.03 is not a low-confidence position, it is no position at all, and averaging
+# it into the torso centre would corrupt every distance this module computes.
+MIN_TORSO_KEYPOINTS = 1
 
 # COCO-17 keypoint indices produced by YOLOv8-pose.
 NOSE = 0
@@ -291,6 +362,29 @@ class FightDetector:
         return self._pose_model
 
     # -- Lifecycle --------------------------------------------------------
+
+    def _decay_pair(self, pair: tuple[int, int]) -> None:
+        """Lose one hit of consecutive-frame progress, not all of it.
+
+        A single occluded frame, a momentarily-lost keypoint, or ByteTrack
+        reassigning an id mid-grapple used to hard-reset this pair's progress
+        to zero (`.pop`), even with an otherwise real fight in progress: a real
+        fight was observed live doing exactly this — one frame scored 0.641
+        confidence, motion 0.683, and the very next frame for the same pair was
+        gated and its id never reappeared. A fight is precisely the condition
+        most likely to cause a stray bad frame (motion blur, brief occlusion),
+        so a hard reset punishes the signal this module exists to catch.
+        Decaying by one instead means a streak survives an isolated blip and
+        only actually resets if bad frames keep outnumbering good ones — a
+        genuinely still or gated pair still can't accumulate net progress.
+        """
+        hits = self._pair_hit_counts.get(pair)
+        if hits is None:
+            return
+        if hits <= 1:
+            self._pair_hit_counts.pop(pair, None)
+        else:
+            self._pair_hit_counts[pair] = hits - 1
 
     def reset_state(self) -> None:
         """Clear all tracking state (used by tests and on engine restart)."""
@@ -592,13 +686,33 @@ class FightDetector:
                 # Quality gates before any scoring: an uncertain pose or a track
                 # that only just appeared cannot produce a trustworthy score, and
                 # scoring it anyway is how noise turns into a false alert.
-                if (
-                    _confident_torso_count(person_a) < MIN_TORSO_KEYPOINTS
-                    or _confident_torso_count(person_b) < MIN_TORSO_KEYPOINTS
-                    or not self._track_is_mature(person_a["track_id"])
-                    or not self._track_is_mature(person_b["track_id"])
-                ):
-                    self._pair_hit_counts.pop(pair, None)
+                #
+                # A rejection here is reported, not silent. These gates run
+                # *before* any score exists, so a pair rejected by them produces
+                # no PAIR line and no alert — indistinguishable, in the log, from
+                # a pair that scored low. That ambiguity matters because the two
+                # need opposite fixes: "occluded torso during a grapple" is not
+                # solved by lowering MOTION_FLOOR, and lowering it anyway would
+                # re-open the false positives it exists to stop.
+                gates = []
+                if _confident_torso_count(person_a) < MIN_TORSO_KEYPOINTS:
+                    gates.append(f"torso_a={_confident_torso_count(person_a)}")
+                if _confident_torso_count(person_b) < MIN_TORSO_KEYPOINTS:
+                    gates.append(f"torso_b={_confident_torso_count(person_b)}")
+                if not self._track_is_mature(person_a["track_id"]):
+                    gates.append(f"immature_a={len(self._track_history.get(person_a['track_id'], ()))}")
+                if not self._track_is_mature(person_b["track_id"]):
+                    gates.append(f"immature_b={len(self._track_history.get(person_b['track_id'], ()))}")
+
+                if gates:
+                    if DEBUG_SCORES:
+                        tag = f"[{self.label}] " if self.label else ""
+                        print(
+                            f"{tag}PAIR {pair} GATED ({', '.join(gates)}) "
+                            f"— not scored",
+                            flush=True,
+                        )
+                    self._decay_pair(pair)
                     continue
 
                 confidence, components = self.score_pair(person_a, person_b)
@@ -621,11 +735,11 @@ class FightDetector:
                 # decide the outcome between them, and standing close with hands
                 # raised reads identically to fighting.
                 if components["motion"] < MOTION_FLOOR:
-                    self._pair_hit_counts.pop(pair, None)
+                    self._decay_pair(pair)
                     continue
 
                 if confidence < FIGHT_THRESHOLD:
-                    self._pair_hit_counts.pop(pair, None)
+                    self._decay_pair(pair)
                     continue
 
                 hits = self._pair_hit_counts.get(pair, 0) + 1

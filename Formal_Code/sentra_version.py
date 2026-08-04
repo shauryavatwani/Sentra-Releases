@@ -23,7 +23,7 @@ import sentra_paths
 # --- Identity ---------------------------------------------------------------
 
 APP_NAME = "Sentra"
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 PUBLISHER = "Delhi Public School Bangalore East"
 
 # The retirement floor published in the release manifest: a client running

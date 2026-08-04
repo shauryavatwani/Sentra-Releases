@@ -5,6 +5,50 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.8
+
+Fight detection now actually catches real fights. 1.0.7 stopped false alarms
+on hugs and close conversation, but the fix used numbers taken from an
+idealised simulation of a punch rather than a real person, and a real fight
+turned out to fall short of them — so a genuine altercation could go
+completely unreported. This release replaces every one of those numbers with
+ones measured from a real person on a real camera, and it has now been proven
+end to end: two people were staged fighting in front of a live camera, and
+Sentra correctly named and reported both of them.
+
+- **Fixed: a real fight did not raise an alert.** The "how fast are their arms
+  moving" score was being compared against a number taken from a simulated
+  punch that turned out to move about three times faster than a real one does.
+  Every real fight was silently scored as too slow to count, no matter how
+  hard anyone was actually swinging. The reference speed is now taken from a
+  real recording of real punches instead.
+- **Fixed: a person's shoulders being turned or blocked from view could stop
+  them from being scored at all.** Sentra requires seeing enough of a
+  person's body to trust a reading, but on this camera a person's hips are
+  essentially never visible — so the requirement effectively meant "both
+  shoulders, every single frame." Any turn, any moment one person's shoulder
+  was blocked by the other — exactly what happens throughout a real
+  struggle — silently excluded that pair from being scored at all, before
+  the movement score was even reached. Sentra now needs to see enough of one
+  side of the body, not both.
+- **Fixed: a fight could reset its own progress.** Sentra requires a pair to
+  look like a fight for several moments in a row before it alerts, so one
+  odd frame — a blink of blur, a person briefly turning away — can't cause a
+  false alarm by itself. But it also meant a single bad frame could erase all
+  the genuine progress a real fight had already built up, sending it back to
+  square one. A brief blip is now absorbed instead of wiping the slate clean,
+  while a pair that never genuinely looks like a fight still can't accumulate
+  anything.
+- Every change in this release was measured against a real camera and real
+  people before shipping, not simulated, and the fight-detection alarm and
+  contact tests it produced are now checked automatically before every future
+  release is even built — so a fix like the one 1.0.7 needed can't ship
+  unnoticed again.
+- **Fight detection is now labelled (beta)** in the dashboard, wherever it
+  appears. It has now been proven to catch a real fight end to end, but on
+  one camera and one test — it hasn't yet been proven across the range of
+  cameras, lighting and people it will eventually need to handle.
+
 ## 1.0.7
 
 Stops fight detection raising false alarms about people who are simply standing
