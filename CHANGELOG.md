@@ -5,6 +5,32 @@ release, and its first paragraph is what Sentra shows in **Settings** before
 you install the update. Write it for the person deciding whether to install,
 not for whoever wrote the code.
 
+## 1.0.7
+
+Stops fight detection raising false alarms about people who are simply standing
+close together. A hug, a hand on someone's shoulder, or two people talking at
+arm's length could be reported as a fight; they no longer are.
+
+- **Fixed: hugs and other close contact reported as fights.** Sentra scored a
+  pair of people on three things — how close together they are, how fast their
+  arms are moving, and whether a hand is reaching into the other person's space
+  — and it was possible for the first and third to add up to an alert on their
+  own, with the arm-movement score contributing nothing at all. Those two are
+  really the same observation twice (people standing close together also have
+  their hands near each other), so anyone embracing, being helped up, or having
+  their shoulder squeezed scored the same as someone throwing a punch. Fight
+  alerts now require actual movement: closeness alone can no longer raise one,
+  no matter how close.
+- **Fixed: a still camera image slowly counting as movement.** The arm-movement
+  score adds up every bit of motion it sees between frames, and the underlying
+  pose estimate wobbles by a pixel or two even when a person is standing
+  perfectly still. That wobble accumulated, so a motionless person gradually
+  read as gently moving. It is now ignored, which means the movement score
+  reflects real movement.
+- **Real fights are detected exactly as before.** This release only removes
+  false alarms — every fight the previous version would have alerted on still
+  alerts, verified side by side against the old code.
+
 ## 1.0.6
 
 Adds accounts for the rest of the team, lets anyone change their own password,

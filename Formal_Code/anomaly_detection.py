@@ -43,6 +43,7 @@ FightDetector per camera instead.
 
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 
@@ -77,16 +78,65 @@ PROXIMITY_LIMIT = 1.4
 # but ends up back where it started, so net displacement would read as zero.
 SPEED_REFERENCE = 1.2
 
+# Per-segment movement below this (in body heights) is treated as zero when
+# summing wrist path length. YOLO keypoint estimates wobble by a couple of
+# pixels frame to frame even on a person standing perfectly still, and because
+# path length *sums* every segment, that jitter accumulates into phantom speed
+# — a motionless person reads as gently moving. Deadbanding each segment means
+# the motion signal measures movement rather than noise, which is what makes
+# MOTION_FLOOR below meaningful rather than arbitrary.
+WRIST_JITTER_DEADBAND = 0.02
+
 # Contact: how close a wrist has to get to the other person's torso,
 # again in body heights.
 CONTACT_LIMIT = 0.45
 
+# Score weighting. These must sum to 1.0, and the rule that gives them their
+# shape is:
+#
+#     PROXIMITY_WEIGHT + CONTACT_WEIGHT < FIGHT_THRESHOLD
+#
+# Proximity and contact are both *static distance* measurements taken from a
+# single frame — torso-to-torso and wrist-to-torso — and they are strongly
+# correlated: people who are close together also have their hands near each
+# other. They are emphatically not independent evidence. If the two of them can
+# clear the threshold between them, then a hug, a shoulder squeeze or two
+# people talking at arm's length with their hands up scores as a fight while
+# nobody moves at all. Keeping their sum below the threshold means a pair can
+# never be flagged on posture alone; something has to actually be *happening*.
+PROXIMITY_WEIGHT = 0.30
+MOTION_WEIGHT = 0.50
+CONTACT_WEIGHT = 0.20
+
 # Score weighting and firing rules.
 FIGHT_THRESHOLD = 0.55      # confidence needed to consider the pair fighting
+
+# Motion is not merely weighted, it is *required*: a pair scoring below this on
+# the motion component is never flagged, however close together they are and
+# however much their hands overlap. The weights above already stop stillness
+# from reaching the threshold on its own, but this states the intent directly
+# rather than leaving it as an emergent property of three numbers that a later
+# retune could quietly undo. A fight is a thing people do, not a way they stand.
+#
+# This is the knob to tune first if real fights are being missed — raise it to
+# suppress more false alarms, lower it to catch subtler scuffles. Set
+# SENTRA_ANOMALY_DEBUG=1 to log every scored pair with its components, which is
+# how you find the right value from real footage instead of guessing.
+MOTION_FLOOR = 0.45
+
 CONSECUTIVE_HITS = 2        # must score above threshold this many evaluations in a row
 PAIR_COOLDOWN_SECONDS = 15  # don't re-log the same pair more often than this
 HISTORY_LENGTH = 8          # motion samples kept per track
 STALE_TRACK_SECONDS = 3.0   # forget tracks not seen for this long
+
+# Log every scored pair and its component breakdown, not just the ones that
+# fire. Off by default because it prints per pair per evaluation; the point of
+# it is that a false positive or a missed fight is otherwise invisible — the
+# log only ever showed alerts that *did* fire, so there was no way to see how
+# close a near-miss came or which component was responsible.
+DEBUG_SCORES = os.environ.get("SENTRA_ANOMALY_DEBUG", "").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 # A track needs this many motion samples before it can trigger an alert. A
 # person who just walked into frame has no meaningful velocity history yet, and
@@ -427,6 +477,13 @@ class FightDetector:
         Measured as total path length over the history window, not start-to-end
         displacement. A punch thrown and retracted returns the wrist to nearly its
         original position, so displacement would score it as motionless.
+
+        Segments shorter than WRIST_JITTER_DEADBAND are discarded rather than
+        summed. Path length is the right measure for punches but it is also
+        pathologically good at accumulating noise: every frame contributes its
+        keypoint wobble with a positive sign, so a perfectly still person builds
+        up a steady phantom speed that grows with the window length. Dropping
+        sub-deadband segments keeps that from being mistaken for movement.
         """
         history = self._track_history.get(track_id)
         if history is None or len(history) < 2:
@@ -442,10 +499,12 @@ class FightDetector:
             travelled = 0.0
             for earlier, later in zip(history, list(history)[1:]):
                 if side in earlier["wrists"] and side in later["wrists"]:
-                    travelled += float(
+                    step = float(
                         np.linalg.norm(later["wrists"][side] - earlier["wrists"][side])
-                    )
-            fastest = max(fastest, (travelled / height) / elapsed)
+                    ) / height
+                    if step >= WRIST_JITTER_DEADBAND:
+                        travelled += step
+            fastest = max(fastest, travelled / elapsed)
         return fastest
 
     # -- Fight classification ---------------------------------------------
@@ -460,6 +519,12 @@ class FightDetector:
 
         All three matter: two people close together but still are talking; someone
         moving fast alone is running; contact without speed is a handshake.
+
+        Note that the confidence returned here is not the whole decision.
+        Proximity and contact are static, single-frame, mutually correlated
+        measurements, so classify_fights additionally requires motion to clear
+        MOTION_FLOOR before a pair can be flagged at all — see the weights
+        block at the top of this module.
         """
         scale = (_body_height(person_a) + _body_height(person_b)) / 2
 
@@ -478,7 +543,11 @@ class FightDetector:
 
         contact = _contact_score(person_a, person_b, scale)
 
-        confidence = 0.35 * proximity + 0.40 * motion + 0.25 * contact
+        confidence = (
+            PROXIMITY_WEIGHT * proximity
+            + MOTION_WEIGHT * motion
+            + CONTACT_WEIGHT * contact
+        )
         components = {
             "distance_body_heights": round(distance, 3),
             "proximity": round(proximity, 3),
@@ -504,9 +573,11 @@ class FightDetector:
     def classify_fights(self, people, face_map, now: float | None = None) -> list[dict]:
         """Check every pair of tracked people and return confirmed fight anomalies.
 
-        A pair has to score above threshold on CONSECUTIVE_HITS evaluations in a
-        row before it fires. That temporal requirement is what keeps a hug, a
-        high-five, or one noisy frame of bad keypoints from raising an alert.
+        A pair has to clear MOTION_FLOOR, then score above threshold on
+        CONSECUTIVE_HITS evaluations in a row, before it fires. The motion
+        requirement is what keeps a hug or a shoulder squeeze from scoring as a
+        fight on closeness alone; the temporal requirement is what keeps a
+        high-five or one noisy frame of bad keypoints from raising an alert.
         """
         if now is None:
             now = time.time()
@@ -531,6 +602,27 @@ class FightDetector:
                     continue
 
                 confidence, components = self.score_pair(person_a, person_b)
+
+                if DEBUG_SCORES:
+                    tag = f"[{self.label}] " if self.label else ""
+                    print(
+                        f"{tag}PAIR {pair} conf={confidence:.3f} "
+                        f"(threshold {FIGHT_THRESHOLD}) "
+                        f"motion={components['motion']:.3f} "
+                        f"(floor {MOTION_FLOOR}) "
+                        f"proximity={components['proximity']:.3f} "
+                        f"contact={components['contact']:.3f} "
+                        f"speeds={components['speed_a']:.3f}/{components['speed_b']:.3f}",
+                        flush=True,
+                    )
+
+                # Motion is a requirement, not just a contributor. Without this,
+                # proximity and contact — two correlated static measurements —
+                # decide the outcome between them, and standing close with hands
+                # raised reads identically to fighting.
+                if components["motion"] < MOTION_FLOOR:
+                    self._pair_hit_counts.pop(pair, None)
+                    continue
 
                 if confidence < FIGHT_THRESHOLD:
                     self._pair_hit_counts.pop(pair, None)

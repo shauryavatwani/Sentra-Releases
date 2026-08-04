@@ -66,5 +66,5 @@ Database/accounts.json
 # --- Local tool config, not project config ---------------------------------
 # Personal, per-machine settings — meaningless to anyone else who clones this
 # and reads as noise on a repo whose whole point is being public.
-.claude/settings.local.json
+.claude/
 .vscode/

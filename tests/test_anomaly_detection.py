@@ -121,10 +121,102 @@ ok = len(fired) == 1
 print(f"{'PASS' if ok else 'FAIL'}  cooldown: {len(fired)} alert(s) across 8 frames (expect 1)")
 results.append(ok)
 
-# 10. No single signal can fire on its own — the weights are capped so that
-# proximity, motion, or contact alone all sit below the threshold.
-ok = max(0.35, 0.40, 0.25) < ad.FIGHT_THRESHOLD
-print(f"{'PASS' if ok else 'FAIL'}  no single signal can fire alone")
+# 10. Stillness can never fire, however close two people stand.
+#
+# The previous version of this test checked only that each weight *individually*
+# sat below the threshold — max(0.35, 0.40, 0.25) < 0.55 — and passed happily
+# while the real bug was in the pair: proximity 0.35 + contact 0.25 = 0.60, over
+# the 0.55 threshold with motion contributing exactly nothing. A hug scored as a
+# fight and the test suite agreed it couldn't. Singles were never the risk;
+# proximity and contact are both static distance measurements taken from one
+# frame and they rise together, so it is specifically their *sum* that has to
+# stay below the line.
+ok = ad.PROXIMITY_WEIGHT + ad.CONTACT_WEIGHT < ad.FIGHT_THRESHOLD
+print(f"{'PASS' if ok else 'FAIL'}  motionless pair cannot reach threshold: "
+      f"proximity+contact={ad.PROXIMITY_WEIGHT + ad.CONTACT_WEIGHT:.2f} "
+      f"< {ad.FIGHT_THRESHOLD}")
+results.append(ok)
+
+# Weights must still be a partition of 1.0, or "confidence" stops meaning
+# anything comparable across releases and the threshold silently changes value.
+total = ad.PROXIMITY_WEIGHT + ad.MOTION_WEIGHT + ad.CONTACT_WEIGHT
+ok = abs(total - 1.0) < 1e-9
+print(f"{'PASS' if ok else 'FAIL'}  weights sum to 1.0: {total}")
+results.append(ok)
+
+# ---------------------------------------------------------------------------
+# False-positive regressions — the reported bug.
+#
+# Every scenario below is two people doing something ordinary at close range.
+# All of them fired before the motion floor existed. These are the tests that
+# would have caught the original bug, so they are the ones that matter most.
+# ---------------------------------------------------------------------------
+
+# A hug: as close as two people get, arms fully around the other's torso, but
+# the arms are not moving fast. Maximum proximity and maximum contact — the
+# exact combination that used to clear the threshold on its own.
+frames = []
+for i in range(5):
+    # 40px apart at height 100 = 0.4 body heights: closer than "arm's length".
+    a = make_person(1, 100, 100, wrist_offset=(35, 0))   # arm around B
+    b = make_person(2, 140, 100, wrist_offset=(-35, 0))  # arm around A
+    frames.append(([a, b], i * 0.5))
+results.append(run("hug: maximum proximity + maximum contact, slow", frames, False))
+
+# Two people standing at conversational distance, gesturing with their hands.
+# Real hand movement, but nothing like fighting speed.
+frames = []
+GESTURE = [0, 12, 4, 14, 2]  # small back-and-forth, ~0.12 body heights
+for i, reach in enumerate(GESTURE):
+    a = make_person(1, 100, 100, wrist_offset=(reach, 0))
+    b = make_person(2, 165, 100, wrist_offset=(-reach, 0))
+    frames.append(([a, b], i * 0.5))
+results.append(run("conversation: close, gesturing while talking", frames, False))
+
+# A shoulder squeeze / pat on the back: one person's hand resting on the other,
+# neither of them moving much.
+frames = []
+for i in range(5):
+    a = make_person(1, 100, 100, wrist_offset=(50, -10))  # hand on B's shoulder
+    b = make_person(2, 155, 100, wrist_offset=(0, 0))
+    frames.append(([a, b], i * 0.5))
+results.append(run("shoulder squeeze: contact without speed", frames, False))
+
+# Keypoint jitter on two people standing still and close. Path length sums every
+# frame's noise with a positive sign, so without the deadband a motionless pair
+# accumulates phantom speed that grows with the window.
+rng = np.random.default_rng(0)
+frames = []
+for i in range(6):
+    jitter_a = tuple(rng.uniform(-2, 2, 2))
+    jitter_b = tuple(rng.uniform(-2, 2, 2))
+    a = make_person(1, 100, 100, wrist_offset=jitter_a)
+    b = make_person(2, 160, 100, wrist_offset=jitter_b)
+    frames.append(([a, b], i * 0.5))
+results.append(run("keypoint jitter: still pair must not drift into an alert", frames, False))
+
+# A real fight that is not a clean exchange of punches must still fire. This is
+# the counterweight to every suppression test above: the motion floor buys its
+# false-positive reduction by requiring movement, and the way that goes wrong is
+# silently — fights simply stop being reported and nothing in the log says so.
+# Tuning MOTION_FLOOR or the weights upward until this test fails means the
+# detector has been tuned into uselessness.
+SCUFFLE = [0, 45, 6, 47, 4]  # shorter, messier reach than PUNCH_CYCLE
+frames = []
+for i, reach in enumerate(SCUFFLE):
+    a = make_person(1, 100, 100, wrist_offset=(reach, 0))
+    b = make_person(2, 170, 100, wrist_offset=(-reach, 0))
+    frames.append(([a, b], i * 0.5))
+results.append(run("fight: messy scuffle, not clean punches", frames, True))
+
+# The floor has to actually be load-bearing. If MOTION_FLOOR were removed, a
+# maximally-close, maximally-contacting, motionless pair must still be unable to
+# reach the threshold on the weights alone — belt and braces, since the weights
+# and the floor are two independent defences against the same failure.
+still_conf = ad.PROXIMITY_WEIGHT * 1.0 + ad.MOTION_WEIGHT * 0.0 + ad.CONTACT_WEIGHT * 1.0
+ok = still_conf < ad.FIGHT_THRESHOLD
+print(f"{'PASS' if ok else 'FAIL'}  weights alone stop a motionless pair: "
+      f"{still_conf:.2f} < {ad.FIGHT_THRESHOLD}")
 results.append(ok)
 
 # ---------------------------------------------------------------------------
