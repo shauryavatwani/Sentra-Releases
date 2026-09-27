@@ -1,0 +1,27 @@
+Sentra — CCTV Intelligence
+Copyright © 2026 Shaurya Vatwani. All rights reserved.
+
+This software, including its source code, compiled binaries, installers,
+documentation and associated files ("Sentra"), is proprietary and
+confidential.
+
+No part of Sentra may be copied, modified, distributed, sublicensed, sold,
+published, reverse engineered, decompiled or disassembled, in whole or in
+part, without the prior written permission of the copyright holder.
+
+Installing Sentra grants the installing organisation a limited,
+non-exclusive, non-transferable right to run it for its own internal use.
+It grants no other rights, and no ownership of Sentra passes to the user.
+
+Sentra is provided "as is", without warranty of any kind, express or
+implied. In no event shall the copyright holder be liable for any claim,
+damages or other liability arising from the use of Sentra.
+
+Third-party components
+----------------------
+Sentra relies on third-party software and models that are distributed under
+their own licences, including InsightFace, Ultralytics YOLOv8, ByteTrack,
+OpenCV, ONNX Runtime and FastAPI. Those licences apply to those components
+and are not changed by this notice. InsightFace's pretrained buffalo_l
+models are licensed for non-commercial use only and are not bundled with
+Sentra; they are downloaded on first launch.
