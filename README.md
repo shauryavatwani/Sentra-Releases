@@ -17,6 +17,10 @@ and Sentra refuses any update whose digest does not match.
 
 ## Copyright
 
-Copyright © 2026 Shaurya Vatwani. All rights reserved. Sentra is proprietary;
-see [LICENSE.txt](LICENSE.txt). No copying, redistribution, reverse
-engineering, decompiling or disassembling.
+Copyright © 2026 Shaurya Vatwani. All rights reserved. Sentra is proprietary
+and licensed for **non-commercial research and evaluation use only**; see
+[LICENSE.txt](LICENSE.txt). Operational deployment (for example as a school's
+security system) needs written permission and a commercial licence from
+InsightFace for its face-recognition models. No copying, redistribution,
+reverse engineering, decompiling or disassembling, except where a
+third-party component's licence or applicable law permits it.

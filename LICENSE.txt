@@ -7,11 +7,22 @@ confidential.
 
 No part of Sentra may be copied, modified, distributed, sublicensed, sold,
 published, reverse engineered, decompiled or disassembled, in whole or in
-part, without the prior written permission of the copyright holder.
+part, without the prior written permission of the copyright holder, except
+to the extent that applicable law, or the licence of a third-party component
+included with Sentra, expressly permits it. Those third-party components
+remain under their own licences, and nothing in this notice restricts the
+rights those licences give you (including, for LGPL-licensed libraries, the
+right to replace them with modified versions and to reverse engineer Sentra
+to the extent needed to debug such modifications).
 
-Installing Sentra grants the installing organisation a limited,
-non-exclusive, non-transferable right to run it for its own internal use.
-It grants no other rights, and no ownership of Sentra passes to the user.
+Sentra is licensed for NON-COMMERCIAL RESEARCH AND EVALUATION USE ONLY.
+Installing Sentra grants a limited, non-exclusive, non-transferable right to
+run it for that purpose. Any other use, including commercial use and
+operational deployment (for example, running it as a security system for a
+school, business or other organisation), requires the prior written
+permission of the copyright holder and any licences required from third
+parties, including InsightFace for its pretrained models. No other rights
+are granted, and no ownership of Sentra passes to the user.
 
 Sentra is provided "as is", without warranty of any kind, express or
 implied. In no event shall the copyright holder be liable for any claim,
@@ -19,9 +30,12 @@ damages or other liability arising from the use of Sentra.
 
 Third-party components
 ----------------------
-Sentra relies on third-party software and models that are distributed under
-their own licences, including InsightFace, Ultralytics YOLOv8, ByteTrack,
-OpenCV, ONNX Runtime and FastAPI. Those licences apply to those components
-and are not changed by this notice. InsightFace's pretrained buffalo_l
-models are licensed for non-commercial use only and are not bundled with
-Sentra; they are downloaded on first launch.
+Sentra includes third-party open-source software, each under its own
+licence. Their copyright notices and licence texts are reproduced in
+THIRD_PARTY_NOTICES.txt, which ships with Sentra.
+
+InsightFace's pretrained "buffalo_l" face-recognition models are NOT
+included with Sentra. They are licensed by InsightFace for non-commercial
+research use only; on first launch Sentra asks the user before downloading
+them directly from InsightFace, and the user obtains them under InsightFace's
+own terms.
